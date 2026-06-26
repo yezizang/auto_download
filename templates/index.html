@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自动化下载工具</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --text-dim: #7c818f;
+    --accent: #5b9aff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d2991d;
+    --cyan: #39c5cf;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 28px; }
+
+  /* ---- 头部 ---- */
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 {
+    font-size: 2rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  header p { color: var(--text-dim); font-size: 0.95rem; margin-top: 4px; }
+
+  /* ---- 卡片 ---- */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;
+  }
+  .card h2 { font-size: 1.1rem; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+  /* ---- 表单 ---- */
+  .form-row { display: flex; gap: 16px; margin-bottom: 14px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 0.85rem; color: var(--text-dim); font-weight: 500; }
+  .flex-1 { flex: 1; }
+
+  textarea, input[type="text"] {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); padding: 10px 14px;
+    font-size: 0.9rem; font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+    resize: vertical; transition: border-color 0.2s;
+  }
+  textarea:focus, input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(91, 154, 255, 0.15);
+  }
+  textarea { min-height: 120px; }
+
+  /* ---- 按钮 ---- */
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 20px; border-radius: 8px; font-size: 0.9rem;
+    font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #7ab4ff; transform: translateY(-1px); }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-ghost {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface); color: var(--text); }
+  .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+  /* ---- 摘要 ---- */
+  .summary { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; }
+  .summary-item {
+    background: var(--bg); border-radius: 8px; padding: 12px 20px;
+    text-align: center; min-width: 90px;
+  }
+  .summary-item .num { font-size: 1.6rem; font-weight: 700; }
+  .summary-item .lbl { font-size: 0.8rem; color: var(--text-dim); }
+  .num.green { color: var(--green); } .num.red { color: var(--red); } .num.accent { color: var(--accent); }
+
+  /* ---- 状态栏 ---- */
+  .status-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: var(--bg); border-radius: 8px;
+    font-size: 0.9rem; margin-bottom: 14px;
+  }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.idle { background: var(--text-dim); }
+  .status-dot.active { background: var(--green); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ---- 表格 ---- */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; table-layout: fixed; }
+  thead th {
+    text-align: left; padding: 10px 12px; color: var(--text-dim);
+    font-weight: 600; font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.5px; border-bottom: 2px solid var(--border); white-space: nowrap;
+  }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid #1e2130; vertical-align: middle; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+  }
+  .badge-waiting { background: #2a2d3a; color: var(--text-dim); }
+  .badge-connecting { background: #3d3520; color: var(--yellow); }
+  .badge-downloading { background: #1a3050; color: var(--accent); }
+  .badge-completed { background: #1a3020; color: var(--green); }
+  .badge-failed { background: #3d1a1a; color: var(--red); }
+
+  /* ---- 文件名 + URL 列 ---- */
+  .task-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .task-filename {
+    font-weight: 600; font-size: 0.9rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .task-url {
+    font-size: 0.78rem; color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  }
+
+  /* ---- 进度列 ---- */
+  .progress-cell { min-width: 130px; }
+  .progress-bar-wrap {
+    height: 6px; background: var(--bg); border-radius: 3px;
+    overflow: hidden; margin-bottom: 4px;
+  }
+  .progress-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .progress-text { font-size: 0.75rem; color: var(--text-dim); }
+
+  /* 异常信息：单行截断 + hover 显示完整 */
+  .error-text {
+    display: block; max-width: 100%; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    color: var(--red); font-size: 0.82rem; cursor: help;
+  }
+
+  /* ---- 不支持列表 ---- */
+  .unsupported-list { max-height: 120px; overflow-y: auto; margin-top: 8px; }
+  .unsupported-list .item {
+    font-size: 0.82rem; color: var(--red); padding: 3px 0; word-break: break-all;
+  }
+
+  /* ---- 空状态 ---- */
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-dim); }
+  .empty-state .icon { font-size: 2.5rem; margin-bottom: 10px; }
+
+  /* ---- 响应式 ---- */
+  @media (max-width: 800px) {
+    .form-row { flex-direction: column; }
+    .summary { justify-content: center; }
+    .task-url { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>📦 自动化下载工具</h1>
+    <p>支持 gofile.io · upload.ee · pixeldrain.com</p>
+  </header>
+
+  <!-- 输入卡片 -->
+  <div class="card" id="input-card">
+    <h2>📥 提交下载任务</h2>
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="urls">下载链接（每行一个 URL，自动去重）</label>
+        <textarea id="urls" placeholder="https://gofile.io/d/abc123&#10;https://upload.ee/files/19999/file.zip.html&#10;https://pixeldrain.com/u/xyz789"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="outdir">保存目录</label>
+        <input type="text" id="outdir" placeholder="留空则使用当前目录下的 downloads 文件夹" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-submit" onclick="submitUrls()">📋 提交 URL</button>
+      <button class="btn btn-success" id="btn-start" onclick="startDownload()" disabled>▶ 开始下载</button>
+      <button class="btn btn-danger" id="btn-stop" onclick="stopDownload()" disabled>⏹ 停止</button>
+      <button class="btn btn-ghost btn-sm" id="btn-clear" onclick="clearCompleted()" style="margin-left:auto;">🧹 清空已完成</button>
+      <span style="color:var(--text-dim); font-size:0.85rem;">线程: 5</span>
+    </div>
+  </div>
+
+  <!-- 摘要 -->
+  <div class="card" id="summary-card" style="display:none;">
+    <h2>📊 解析结果</h2>
+    <div class="summary">
+      <div class="summary-item"><div class="num accent" id="sum-total">0</div><div class="lbl">总链接数</div></div>
+      <div class="summary-item"><div class="num green" id="sum-valid">0</div><div class="lbl">可自动下载</div></div>
+      <div class="summary-item"><div class="num red" id="sum-unsupported">0</div><div class="lbl">不支持</div></div>
+    </div>
+    <div class="unsupported-list" id="unsupported-list" style="display:none;"></div>
+  </div>
+
+  <!-- 任务列表 -->
+  <div class="card" id="progress-card" style="display:none;">
+    <h2>⚡ 下载任务列表</h2>
+    <div class="status-bar">
+      <div class="status-dot idle" id="status-dot"></div>
+      <span id="status-text">就绪</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <colgroup>
+          <col style="width:42px">
+          <col style="width:auto">          <!-- 文件名 + URL -->
+          <col style="width:90px">          <!-- 状态 -->
+          <col style="width:155px">         <!-- 进度 -->
+          <col style="width:95px">          <!-- 速度 -->
+          <col style="width:120px">         <!-- 大小 -->
+        </colgroup>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>文件</th>
+            <th>状态</th>
+            <th class="progress-cell">进度</th>
+            <th>速度</th>
+            <th>大小</th>
+          </tr>
+        </thead>
+        <tbody id="task-tbody">
+          <tr><td colspan="6"><div class="empty-state"><div class="icon">📭</div>暂无任务，请先提交 URL</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+let state = {
+  valid_count: 0, unsupported_count: 0, downloading: false,
+  tasks: [], output_dir: "", status_message: "就绪",
+};
+
+const evtSource = new EventSource("/api/stream");
+evtSource.onmessage = function(e) {
+  try { state = JSON.parse(e.data); render(); } catch(err) {}
+};
+evtSource.onerror = function() { /* auto-reconnect */ };
+
+function render() {
+  const tasks = state.tasks || [];
+  const hasWaiting = tasks.some(t => t.status === "waiting");
+
+  document.getElementById("btn-start").disabled = !hasWaiting || state.downloading;
+  document.getElementById("btn-stop").disabled = !state.downloading;
+
+  document.getElementById("summary-card").style.display =
+    (tasks.length > 0 || state.unsupported_count > 0) ? "" : "none";
+  document.getElementById("progress-card").style.display = tasks.length > 0 ? "" : "none";
+
+  document.getElementById("sum-total").textContent = state.valid_count + state.unsupported_count;
+  document.getElementById("sum-valid").textContent = state.valid_count;
+  document.getElementById("sum-unsupported").textContent = state.unsupported_count;
+
+  const ulist = document.getElementById("unsupported-list");
+  if (state.unsupported_urls && state.unsupported_urls.length > 0) {
+    ulist.style.display = "";
+    ulist.innerHTML = state.unsupported_urls.map(u => `<div class="item">⚠ ${escapeHtml(u)}</div>`).join("");
+  } else {
+    ulist.style.display = "none";
+  }
+
+  const dot = document.getElementById("status-dot");
+  dot.className = "status-dot " + (state.downloading ? "active" : "idle");
+  document.getElementById("status-text").textContent = state.status_message || "就绪";
+
+  renderTasks();
+}
+
+function renderTasks() {
+  const tbody = document.getElementById("task-tbody");
+  const tasks = state.tasks || [];
+
+  if (tasks.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">📭</div>暂无任务</div></td></tr>';
+    return;
+  }
+
+  const statusBadges = {
+    waiting:     ["等待", "waiting"],
+    connecting:  ["连接中", "connecting"],
+    downloading: ["下载中", "downloading"],
+    completed:   ["完成", "completed"],
+    failed:      ["失败", "failed"],
+  };
+
+  tbody.innerHTML = tasks.map(t => {
+    const [label, cls] = statusBadges[t.status] || [t.status, "waiting"];
+    const badge = `<span class="badge badge-${cls}">${label}</span>`;
+
+    // 文件名 + URL 双行显示
+    let nameHtml;
+    if (t.filename) {
+      nameHtml = `
+        <div class="task-name">
+          <span class="task-filename" title="${escapeHtml(t.filename)}">${escapeHtml(t.filename)}</span>
+          <span class="task-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</span>
+        </div>`;
+    } else {
+      // 尚未获取文件名，仅显示 URL
+      nameHtml = `
+        <div class="task-name">
+          <span class="task-filename" style="color:var(--text-dim);" title="${escapeHtml(t.url)}">${escapeHtml(truncateUrl(t.url))}</span>
+          <span class="task-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</span>
+        </div>`;
+    }
+
+    // 进度列
+    let progressHtml = "--";
+    if (t.status === "downloading" || t.status === "connecting") {
+      const pct = Math.min(100, Math.max(0, t.percent || 0));
+      progressHtml = `
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width:${pct}%;background:var(--accent)"></div>
+        </div>
+        <div class="progress-text">${pct.toFixed(1)}%</div>`;
+    } else if (t.status === "completed") {
+      progressHtml = `
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width:100%;background:var(--green)"></div>
+        </div>
+        <div class="progress-text" style="color:var(--green)">100%</div>`;
+    } else if (t.status === "failed") {
+      const err = t.error || "下载失败";
+      progressHtml = `<span class="error-text" title="${escapeHtml(err)}">${escapeHtml(err)}</span>`;
+    }
+
+    // 速度
+    const speedStr = (t.status === "downloading" && t.speed > 0) ? formatSpeed(t.speed) : "--";
+
+    // 大小
+    let sizeStr = "--";
+    if (t.total) { sizeStr = formatSize(t.downloaded) + " / " + formatSize(t.total); }
+    else if (t.downloaded > 0) { sizeStr = formatSize(t.downloaded); }
+
+    return `<tr>
+      <td style="color:var(--text-dim);">${t.index}</td>
+      <td>${nameHtml}</td>
+      <td>${badge}</td>
+      <td class="progress-cell">${progressHtml}</td>
+      <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${speedStr}</td>
+      <td style="font-size:0.82rem;color:var(--text-dim);white-space:nowrap;">${sizeStr}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ---------- 工具 ----------
+function formatSize(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+  if (b < 1073741824) return (b / 1048576).toFixed(1) + " MB";
+  return (b / 1073741824).toFixed(2) + " GB";
+}
+function formatSpeed(b) {
+  if (b < 1024) return b.toFixed(0) + " B/s";
+  if (b < 1048576) return (b / 1024).toFixed(1) + " KB/s";
+  return (b / 1048576).toFixed(1) + " MB/s";
+}
+function escapeHtml(s) {
+  const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+}
+function truncateUrl(url) {
+  return url.length > 55 ? url.substring(0, 52) + '...' : url;
+}
+
+// ---------- API ----------
+async function submitUrls() {
+  const urls = document.getElementById("urls").value.trim();
+  const outdir = document.getElementById("outdir").value.trim();
+  if (!urls) { alert("请输入至少一个下载链接"); return; }
+
+  const btn = document.getElementById("btn-submit");
+  btn.disabled = true; btn.textContent = "提交中...";
+
+  try {
+    const resp = await fetch("/api/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls, output_dir: outdir }),
+    });
+    const data = await resp.json();
+    if (!data.ok) { alert("错误: " + data.error); }
+  } catch(e) { alert("请求失败: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = "📋 提交 URL"; }
+}
+
+async function startDownload() {
+  const btn = document.getElementById("btn-start");
+  btn.disabled = true; btn.textContent = "启动中...";
+  try {
+    const resp = await fetch("/api/start", { method: "POST" });
+    const data = await resp.json();
+    if (!data.ok) { alert("错误: " + data.error); }
+  } catch(e) { alert("请求失败: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = "▶ 开始下载"; }
+}
+
+async function stopDownload() {
+  const btn = document.getElementById("btn-stop");
+  btn.disabled = true; btn.textContent = "停止中...";
+  try { await fetch("/api/stop", { method: "POST" }); }
+  catch(e) { alert("请求失败: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = "⏹ 停止"; }
+}
+
+async function clearCompleted() {
+  const btn = document.getElementById("btn-clear");
+  btn.disabled = true;
+  try { await fetch("/api/clear", { method: "POST" }); }
+  catch(e) { alert("请求失败: " + e.message); }
+  finally { btn.disabled = false; }
+}
+
+render();
+</script>
+</body>
+</html>
