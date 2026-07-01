@@ -178,7 +178,7 @@
 
   <header>
     <h1>📦 自动化下载工具</h1>
-    <p>支持 gofile.io · upload.ee · pixeldrain.com</p>
+    <p>支持 gofile.io · upload.ee · pixeldrain.com · mediafire.com · transfer.it · anonfilesnew.com · biteblob.com</p>
   </header>
 
   <!-- 输入卡片 -->
@@ -187,7 +187,7 @@
     <div class="form-row">
       <div class="form-group flex-1">
         <label for="urls">下载链接（每行一个 URL，自动去重）</label>
-        <textarea id="urls" placeholder="https://gofile.io/d/abc123&#10;https://upload.ee/files/19999/file.zip.html&#10;https://pixeldrain.com/u/xyz789"></textarea>
+        <textarea id="urls" placeholder="每行一个 URL，自动去重&#10;https://gofile.io/d/abc123&#10;https://upload.ee/files/19999/file.zip.html&#10;https://pixeldrain.com/u/xyz789&#10;https://www.mediafire.com/file/abc123/file.zip/file&#10;https://transfer.it/t/abc123&#10;https://anonfilesnew.com/abc123/file.zip&#10;https://biteblob.com/abc123/file.zip"></textarea>
       </div>
     </div>
     <div class="form-row">
@@ -200,6 +200,7 @@
       <button class="btn btn-primary" id="btn-submit" onclick="submitUrls()">📋 提交 URL</button>
       <button class="btn btn-success" id="btn-start" onclick="startDownload()" disabled>▶ 开始下载</button>
       <button class="btn btn-danger" id="btn-stop" onclick="stopDownload()" disabled>⏹ 停止</button>
+      <button class="btn btn-ghost" id="btn-retry" onclick="retryFailed()" disabled>🔄 重试失败</button>
       <button class="btn btn-ghost btn-sm" id="btn-clear" onclick="clearCompleted()" style="margin-left:auto;">🧹 清空已完成</button>
       <span style="color:var(--text-dim); font-size:0.85rem;">线程: 5</span>
     </div>
@@ -226,12 +227,13 @@
     <div class="table-wrap">
       <table>
         <colgroup>
-          <col style="width:42px">
-          <col style="width:auto">          <!-- 文件名 + URL -->
-          <col style="width:90px">          <!-- 状态 -->
-          <col style="width:155px">         <!-- 进度 -->
-          <col style="width:95px">          <!-- 速度 -->
-          <col style="width:120px">         <!-- 大小 -->
+          <col style="width:38px">
+          <col style="width:auto">
+          <col style="width:78px">
+          <col style="width:148px">
+          <col style="width:88px">
+          <col style="width:110px">
+          <col style="width:52px">
         </colgroup>
         <thead>
           <tr>
@@ -241,10 +243,11 @@
             <th class="progress-cell">进度</th>
             <th>速度</th>
             <th>大小</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="task-tbody">
-          <tr><td colspan="6"><div class="empty-state"><div class="icon">📭</div>暂无任务，请先提交 URL</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="icon">📭</div>暂无任务，请先提交 URL</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -267,9 +270,11 @@ evtSource.onerror = function() { /* auto-reconnect */ };
 function render() {
   const tasks = state.tasks || [];
   const hasWaiting = tasks.some(t => t.status === "waiting");
+  const hasFailed = tasks.some(t => t.status === "failed");
 
   document.getElementById("btn-start").disabled = !hasWaiting || state.downloading;
   document.getElementById("btn-stop").disabled = !state.downloading;
+  document.getElementById("btn-retry").disabled = !hasFailed || state.downloading;
 
   document.getElementById("summary-card").style.display =
     (tasks.length > 0 || state.unsupported_count > 0) ? "" : "none";
@@ -299,7 +304,7 @@ function renderTasks() {
   const tasks = state.tasks || [];
 
   if (tasks.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">📭</div>暂无任务</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">📭</div>暂无任务</div></td></tr>';
     return;
   }
 
@@ -360,6 +365,12 @@ function renderTasks() {
     if (t.total) { sizeStr = formatSize(t.downloaded) + " / " + formatSize(t.total); }
     else if (t.downloaded > 0) { sizeStr = formatSize(t.downloaded); }
 
+    // 操作
+    let actionHtml = "";
+    if (t.status === "failed") {
+      actionHtml = `<button class="btn btn-ghost btn-sm" onclick="retryOne(${t.index})" title="重试">🔄</button>`;
+    }
+
     return `<tr>
       <td style="color:var(--text-dim);">${t.index}</td>
       <td>${nameHtml}</td>
@@ -367,6 +378,7 @@ function renderTasks() {
       <td class="progress-cell">${progressHtml}</td>
       <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${speedStr}</td>
       <td style="font-size:0.82rem;color:var(--text-dim);white-space:nowrap;">${sizeStr}</td>
+      <td style="text-align:center;">${actionHtml}</td>
     </tr>`;
   }).join("");
 }
@@ -428,6 +440,29 @@ async function stopDownload() {
   try { await fetch("/api/stop", { method: "POST" }); }
   catch(e) { alert("请求失败: " + e.message); }
   finally { btn.disabled = false; btn.textContent = "⏹ 停止"; }
+}
+
+async function retryFailed() {
+  const btn = document.getElementById("btn-retry");
+  btn.disabled = true; btn.textContent = "重试中...";
+  try {
+    const resp = await fetch("/api/retry", { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+    const data = await resp.json();
+    if (!data.ok) { alert("错误: " + data.error); }
+  } catch(e) { alert("请求失败: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = "🔄 重试失败"; }
+}
+
+async function retryOne(index) {
+  try {
+    const resp = await fetch("/api/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ index }),
+    });
+    const data = await resp.json();
+    if (!data.ok) { alert("错误: " + data.error); }
+  } catch(e) { alert("请求失败: " + e.message); }
 }
 
 async function clearCompleted() {

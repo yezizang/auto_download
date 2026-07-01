@@ -394,6 +394,44 @@ def api_stop():
     return jsonify({"ok": True, "message": "停止信号已发送"})
 
 
+@app.route("/api/retry", methods=["POST"])
+def api_retry():
+    """重试失败任务。传 index 重试单个，否则重试全部失败。"""
+    global _stop_event
+
+    data = request.get_json(silent=True) or {}
+    target_index = data.get("index")
+    error_msg = None
+
+    with _lock:
+        if target_index is not None:
+            for t in _tasks:
+                if t.index == target_index and t.status == "failed":
+                    t.status = "waiting"
+                    t.error = ""
+                    break
+            else:
+                error_msg = f"未找到可重试的任务 #{target_index}"
+        else:
+            count = sum(1 for t in _tasks if t.status == "failed")
+            if count == 0:
+                error_msg = "没有失败的任务"
+            else:
+                for t in _tasks:
+                    if t.status == "failed":
+                        t.status = "waiting"
+                        t.error = ""
+
+    if error_msg:
+        return jsonify({"ok": False, "error": error_msg})
+
+    if _stop_event.is_set():
+        _stop_event = Event()
+
+    submitted = _submit_waiting_tasks()
+    return jsonify({"ok": True, "message": f"已重新开始 {submitted} 个任务"})
+
+
 @app.route("/api/clear", methods=["POST"])
 def api_clear():
     """清空已完成和失败的任务记录。"""
@@ -456,7 +494,7 @@ if __name__ == "__main__":
 ╔══════════════════════════════════════════════╗
 ║      🚀 自动化下载工具 - Web 服务            ║
 ╠══════════════════════════════════════════════╣
-║  支持: gofile.io | upload.ee | pixeldrain | transfer.it | anonfilesnew | biteblob ║
+║  支持: gofile.io | upload.ee | pixeldrain | mediafire | transfer.it | anonfilesnew | biteblob ║
 ║  地址: http://{args.host}:{args.port}                  ║
 ║  线程: {MAX_WORKERS}                                ║
 ╚══════════════════════════════════════════════╝
