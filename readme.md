@@ -1,21 +1,90 @@
-# 目的
-自动化下载combolog原始文件
-# 原理
-通过向程序提交下载地址，程序自动化对网站资源进行下载
+# 自动化下载工具
 
-# 详细流程
-## 网站分类
-· gofile.io
-    使用gofile_download.py下载
-. upload.ee
-    使用uploadee_downloader.py下载
-. pixeldrain.com
-    使用Pixeldrain库进行下载
-## 流程
-用户提交一批url，并且指定文件下载路径
-系统进行获取这批url，提取出可以自动化下载的url，返回不可自动化下载的url（以上三个网站之外的为不可自动化下载）
-提示，共获取到x个数据下载链接，其中m个可自动化下载，n个不可自动化下载。
-开放5个线程用于下载任务，同时在页面的下端展示一个任务列表，显示哪些正在下载，下载速度、下载进度等信息
+批量下载工具，提供 Web 界面。粘贴文件分享链接，自动识别网站并并发下载，支持断点续传和实时进度展示。
 
-## 备注
-gofile_download.py是我从github中下载下来的，程序可能会冗余，请你进行修改，只保留基础的下载到指定路径，并且包含该程序需要的必要功能即可。
+## 支持的网站
+
+| 网站 | URL 格式 |
+|------|---------|
+| [gofile.io](https://gofile.io) | `gofile.io/d/...` |
+| [upload.ee](https://upload.ee) | `upload.ee/files/...` |
+| [pixeldrain.com](https://pixeldrain.com) | `pixeldrain.com/u/...` / `pixeldrain.com/l/...` |
+| [mediafire.com](https://mediafire.com) | `mediafire.com/file/...` |
+| [transfer.it](https://transfer.it) | `transfer.it/t/...` |
+| [anonfilesnew.com](https://anonfilesnew.com) | `anonfilesnew.com/...` |
+| [biteblob.com](https://biteblob.com) | `biteblob.com/...` |
+
+## 快速开始
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动服务
+python app.py
+
+# 自定义端口
+python app.py --host 0.0.0.0 --port 8080
+```
+
+浏览器打开 `http://localhost:5000`。
+
+## 使用流程
+
+1. **粘贴 URL** — 每行一个，自动去重
+2. **设置保存目录**（可选，默认 `./downloads`）
+3. 点击 **提交 URL** — 自动识别可下载和不支持的链接
+4. 点击 **开始下载** — 5 个线程并发下载
+5. 在任务列表中查看实时进度、速度和文件大小
+
+## 配置
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `AUTO_DL_WORKERS` | `5` | 并发下载线程数 |
+
+各下载器支持标准代理环境变量（`ALL_PROXY`、`HTTPS_PROXY`）来走代理。
+
+## 功能特性
+
+- **并发下载** — 可配置线程池
+- **断点续传** — 中断后自动续传
+- **URL 去重** — 相同链接自动跳过
+- **实时进度** — SSE 推送状态更新到浏览器
+- **失败重试** — 支持单个或全部重试
+- **深色主题** — 响应式布局，支持移动端
+
+## 项目结构
+
+```
+auto_download/
+├── app.py                  # Flask Web 服务 + 任务管理
+├── requirements.txt        # Python 依赖
+├── templates/
+│   └── index.html          # Web 界面（单页应用）
+├── utils/
+│   ├── gofile_downloader.py
+│   ├── uploadee_downloader.py
+│   ├── pixeldrain_downloader.py
+│   ├── mediafire_downloader.py
+│   ├── transferit_downloader.py
+│   ├── anonfilesnew_downloader.py
+│   └── biteblob_downloader.py
+└── downloads/              # 默认下载目录
+```
+
+## API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/submit` | 提交 URL 列表 |
+| POST | `/api/start` | 开始/继续下载 |
+| POST | `/api/stop` | 停止所有下载 |
+| POST | `/api/retry` | 重试失败任务（可选 `{"index": N}`） |
+| POST | `/api/clear` | 清空已完成/失败的任务 |
+| GET | `/api/status` | 获取完整状态（JSON） |
+| GET | `/api/stream` | SSE 实时状态推送 |
+
+## License
+
+MIT

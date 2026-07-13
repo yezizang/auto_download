@@ -16,28 +16,28 @@
 import json
 import os
 import re
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event, Lock
+from typing import Callable
 
 from flask import Flask, Response, jsonify, render_template, request
 
-# ---------- 导入下载器 ----------
-from utils.gofile_downloader import download as gofile_download
-from utils.uploadee_downloader import downloader as uploadee_download
-from utils.pixeldrain_downloader import download as pixeldrain_download
-from utils.anonfilesnew_downloader import download as anonfilesnew_download
-from utils.biteblob_downloader import download as biteblob_download
-from utils.mediafire_downloader import download as mediafire_download
-from utils.transferit_downloader import download as transferit_download
+# ---- 导入下载器 ----
+from utils.gofile_downloader import download as _gofile_dl
+from utils.uploadee_downloader import downloader as _uploadee_dl
+from utils.pixeldrain_downloader import download as _pixeldrain_dl
+from utils.anonfilesnew_downloader import download as _anonfilesnew_dl
+from utils.biteblob_downloader import download as _biteblob_dl
+from utils.mediafire_downloader import download as _mediafire_dl
+from utils.transferit_downloader import download as _transferit_dl
 
 # =============================================================================
 # 配置
 # =============================================================================
 
-MAX_WORKERS: int = 5
+MAX_WORKERS: int = int(os.environ.get("AUTO_DL_WORKERS", "5"))
 
 # URL 分类规则
 SITE_PATTERNS: dict[str, str] = {
@@ -48,6 +48,18 @@ SITE_PATTERNS: dict[str, str] = {
     r"anonfilesnew\.com/": "anonfilesnew.com",
     r"biteblob\.com/": "biteblob.com",
     r"mediafire\.com/file/": "mediafire.com",
+}
+
+# 下载器调度表：site → (下载函数, 是否返回列表)
+# gofile 返回 list[str]，其余返回 str|None，通过 returns_list 标记统一处理
+_DOWNLOADERS: dict[str, tuple[Callable, bool]] = {
+    "gofile.io":        (_gofile_dl,        True),
+    "upload.ee":        (_uploadee_dl,      False),
+    "pixeldrain.com":   (_pixeldrain_dl,    False),
+    "transfer.it":      (_transferit_dl,    False),
+    "anonfilesnew.com": (_anonfilesnew_dl,  False),
+    "biteblob.com":     (_biteblob_dl,      False),
+    "mediafire.com":    (_mediafire_dl,     False),
 }
 
 # =============================================================================
@@ -106,7 +118,7 @@ def _set_status(msg: str) -> None:
         _status_message = msg
 
 
-# 不在任务列表中出现的不支持 URL（仅统计+摘要展示）
+# 不支持 URL 的统计（不加入任务列表，仅摘要展示）
 _unsupported_urls: list[str] = []
 _unsupported_count: int = 0
 
@@ -154,79 +166,27 @@ def _dispatch(task: TaskInfo, stop: Event) -> None:
         task.speed = info.get("speed", 0)
         task.percent = info.get("percent", 0)
 
+    entry = _DOWNLOADERS.get(task.site)
+    if entry is None:
+        task.status = "failed"
+        task.error = f"未知网站: {task.site}"
+        with _lock:
+            _active_count -= 1
+        return
+
+    download_fn, returns_list = entry
+
     try:
         task.status = "connecting"
-
-        if task.site == "gofile.io":
-            result = gofile_download(task.url, _output_dir,
-                                     progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result[0] if result else None
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
-        elif task.site == "upload.ee":
-            result = uploadee_download(task.url, _output_dir,
-                                       progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
-        elif task.site == "pixeldrain.com":
-            result = pixeldrain_download(task.url, _output_dir,
-                                         progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
-        elif task.site == "anonfilesnew.com":
-            result = anonfilesnew_download(task.url, _output_dir,
-                                           progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
-        elif task.site == "biteblob.com":
-            result = biteblob_download(task.url, _output_dir,
-                                        progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
-        elif task.site == "mediafire.com":
-            result = mediafire_download(task.url, _output_dir,
-                                         progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
-        elif task.site == "transfer.it":
-            result = transferit_download(task.url, _output_dir,
-                                         progress_callback=cb, stop_event=stop)
-            if result:
-                task.status = "completed"
-                task.percent = 100.0
-                task.result_path = result
-            else:
-                task.status = "failed" if not stop.is_set() else "waiting"
-
+        result = download_fn(task.url, _output_dir,
+                             progress_callback=cb, stop_event=stop)
+        if result:
+            task.status = "completed"
+            task.percent = 100.0
+            # gofile 返回 list[str]，其余返回 str
+            task.result_path = result[0] if returns_list else result
+        else:
+            task.status = "failed" if not stop.is_set() else "waiting"
     except Exception as e:
         task.status = "failed"
         task.error = str(e)
@@ -242,15 +202,15 @@ def _dispatch(task: TaskInfo, stop: Event) -> None:
 
 
 def _submit_waiting_tasks() -> int:
-    """
-    将所有 waiting 任务提交到持久线程池。
-    返回本次提交的数量。
-    """
+    """将所有 waiting 任务提交到持久线程池。返回本次提交的数量。"""
     global _active_count
 
     submitted = 0
-    for t in _tasks:
-        if t.status == "waiting":
+    # ponytail: 整个遍历期间持锁，避免与 api_submit/api_clear 并发竞争
+    with _lock:
+        for t in _tasks:
+            if t.status != "waiting":
+                continue
             t.status = "connecting"
             t.filename = ""
             t.downloaded = 0
@@ -259,8 +219,7 @@ def _submit_waiting_tasks() -> int:
             t.percent = 0.0
             t.error = ""
             _executor.submit(_dispatch, t, _stop_event)
-            with _lock:
-                _active_count += 1
+            _active_count += 1
             submitted += 1
 
     if submitted > 0:
@@ -387,7 +346,7 @@ def api_stop():
     """停止所有进行中的下载。"""
     global _active_count
     _stop_event.set()
-    # 将来新的 start 会创建新的 Event
+    # 下次 start 会创建新的 Event
     with _lock:
         _active_count = 0
     _set_status("已停止")
@@ -494,7 +453,9 @@ if __name__ == "__main__":
 ╔══════════════════════════════════════════════╗
 ║      🚀 自动化下载工具 - Web 服务            ║
 ╠══════════════════════════════════════════════╣
-║  支持: gofile.io | upload.ee | pixeldrain | mediafire | transfer.it | anonfilesnew | biteblob ║
+║  支持: gofile.io | upload.ee | pixeldrain   ║
+║        mediafire | transfer.it | anonfilesnew║
+║        biteblob                              ║
 ║  地址: http://{args.host}:{args.port}                  ║
 ║  线程: {MAX_WORKERS}                                ║
 ╚══════════════════════════════════════════════╝
