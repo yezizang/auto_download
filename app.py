@@ -31,7 +31,8 @@ from utils.pixeldrain_downloader import download as _pixeldrain_dl
 from utils.anonfilesnew_downloader import download as _anonfilesnew_dl
 from utils.biteblob_downloader import download as _biteblob_dl
 from utils.mediafire_downloader import download as _mediafire_dl
-from utils.cloud_mail_ru_downloader import download as _cloud_mail_ru_dl
+from utils.cloud_mail_ru_downloader import download as _cloud_mail_ru_file_dl
+from utils.cloud_mail_ru_downloader import resolve as _cloud_mail_ru_resolve
 from utils.transferit_downloader import download as _transferit_dl
 
 # =============================================================================
@@ -62,7 +63,7 @@ _DOWNLOADERS: dict[str, tuple[Callable, bool]] = {
     "anonfilesnew.com": (_anonfilesnew_dl, False),
     "biteblob.com": (_biteblob_dl, False),
     "mediafire.com": (_mediafire_dl, False),
-    "cloud.mail.ru": (_cloud_mail_ru_dl, True),
+    "cloud.mail.ru-file": (_cloud_mail_ru_file_dl, False),
 }
 
 # =============================================================================
@@ -276,28 +277,51 @@ def api_submit():
 
     # 解析并去重
     lines = [line.strip() for line in raw_urls.splitlines() if line.strip()]
+
+    # 第一遍：分类 + 去重（不持锁，cloud.mail.ru 需外部分辨）
     new_supported: list[TaskInfo] = []
     new_unsupported_urls: list[str] = []
     skipped_dup = 0
 
-    with _lock:
-        for url in lines:
-            # 去重检查
-            normalized = url.lower().rstrip("/")
+    for url in lines:
+        normalized = url.lower().rstrip("/")
+        with _lock:
             if normalized in _seen_urls:
                 skipped_dup += 1
                 continue
             _seen_urls.add(normalized)
 
-            site = classify_url(url)
-            if site:
-                task = TaskInfo(index=_next_index, url=url, site=site)
+        site = classify_url(url)
+
+        # cloud.mail.ru 文件夹 → 展开为 N 个单文件任务
+        if site == "cloud.mail.ru":
+            try:
+                resolved = _cloud_mail_ru_resolve(url)
+            except Exception:
+                new_unsupported_urls.append(url)
+                continue
+
+            if not resolved:
+                new_unsupported_urls.append(url)
+                continue
+
+            for file_info in resolved:
+                task = TaskInfo(
+                    index=_next_index,
+                    url=file_info["url"],
+                    site="cloud.mail.ru-file",
+                    filename=file_info["filename"],
+                )
                 new_supported.append(task)
                 _next_index += 1
-            else:
-                new_unsupported_urls.append(url)
+        elif site:
+            task = TaskInfo(index=_next_index, url=url, site=site)
+            new_supported.append(task)
+            _next_index += 1
+        else:
+            new_unsupported_urls.append(url)
 
-        # 不支持 URL 不加入任务列表，只记入摘要
+    with _lock:
         _unsupported_urls.extend(new_unsupported_urls)
         _unsupported_count += len(new_unsupported_urls)
         _tasks.extend(new_supported)
