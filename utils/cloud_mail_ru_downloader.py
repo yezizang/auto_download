@@ -17,6 +17,7 @@ from typing import Callable
 import requests
 
 CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB
+MAX_RETRIES = 3
 TIMEOUT = (15, 120)
 PROXY = "socks5h://127.0.0.1:7891"
 
@@ -101,12 +102,16 @@ def download(
 
     # ---- Step 1: 抓取页面，提取文件列表 ----
     _notify("connecting", "", 0, None, 0, 0)
-    try:
-        resp = session.get(url, timeout=TIMEOUT)
-        resp.raise_for_status()
-    except Exception as e:
-        _notify("failed", str(e)[:120])
-        return []
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = session.get(url, timeout=TIMEOUT)
+            resp.raise_for_status()
+            break
+        except requests.RequestException as e:
+            if attempt == MAX_RETRIES:
+                _notify("failed", str(e)[:120])
+                return []
+            time.sleep(2 ** attempt)
 
     try:
         data = _extract_cloud_settings(resp.text)
@@ -134,11 +139,17 @@ def download(
 
         post_body = {"x-email": "anonym", "weblink_list": [weblink], "name": name}
 
-        try:
-            api_resp = session.post(zip_api, json=post_body, timeout=TIMEOUT)
-            api_resp.raise_for_status()
-        except Exception as e:
-            _notify("failed", f"{name}: API {e}")
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                api_resp = session.post(zip_api, json=post_body, timeout=TIMEOUT)
+                api_resp.raise_for_status()
+                break
+            except requests.RequestException as e:
+                if attempt == MAX_RETRIES:
+                    _notify("failed", f"{name}: API {e}")
+                    continue
+                time.sleep(2 ** attempt)
+        else:
             continue
 
         dl_key = api_resp.json().get("key")
@@ -166,64 +177,105 @@ def download(
             results.append(filepath)
             continue
 
-        # ---- Step 3: 流式下载 ----
+        # ---- Step 3: 流式下载（含断点续传） ----
         _notify("downloading", safe_name)
 
-        try:
-            dl_resp = session.get(download_url, stream=True, timeout=TIMEOUT)
-            dl_resp.raise_for_status()
-        except Exception as e:
-            _notify("failed", f"{name}: {e}")
-            continue
-
-        remote_size = None
-        cl = dl_resp.headers.get("content-length")
-        if cl:
-            try:
-                remote_size = int(cl)
-            except ValueError:
-                pass
-
         tmp = f"{filepath}.part"
-        t0 = time.perf_counter()
-        downloaded = 0
-        last_rpt = 0.0
 
-        try:
-            with open(tmp, "wb") as f:
-                for chunk in dl_resp.iter_content(chunk_size=CHUNK_SIZE):
-                    if stop.is_set():
-                        return results
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    downloaded += len(chunk)
+        for attempt in range(1, MAX_RETRIES + 1):
+            if stop.is_set():
+                return results
 
-                    now = time.perf_counter()
-                    if now - last_rpt >= 0.5 or downloaded == remote_size:
-                        elap = now - t0
-                        spd = downloaded / elap if elap > 0 else 0
-                        pct = (downloaded / remote_size * 100) if remote_size else 0
-                        _notify(
-                            "downloading", safe_name, downloaded, remote_size, spd, pct
-                        )
-                        last_rpt = now
+            part_size = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+            headers = {"Range": f"bytes={part_size}-"} if part_size > 0 else {}
 
-            # 完成
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            os.rename(tmp, filepath)
+            try:
+                dl_resp = session.get(download_url, headers=headers,
+                                      stream=True, timeout=TIMEOUT)
+            except requests.RequestException as e:
+                if attempt == MAX_RETRIES:
+                    _notify("failed", f"{name}: {e}")
+                else:
+                    time.sleep(2 ** attempt)
+                continue
 
-            elap = time.perf_counter() - t0
-            avg = downloaded / elap if elap > 0 else 0
-            _notify(
-                "completed", safe_name, downloaded, remote_size or downloaded, avg, 100
-            )
-            results.append(filepath)
+            # 服务器不支持断点续传，重头开始
+            if part_size > 0 and dl_resp.status_code not in (206, 200):
+                part_size = 0
+                open(tmp, "wb").close()
+                try:
+                    dl_resp = session.get(download_url, stream=True, timeout=TIMEOUT)
+                except requests.RequestException as e:
+                    if attempt == MAX_RETRIES:
+                        _notify("failed", f"{name}: {e}")
+                    else:
+                        time.sleep(2 ** attempt)
+                    continue
 
-        except Exception as e:
-            _notify("failed", f"{name}: {e}")
+            if dl_resp.status_code not in (200, 206):
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 ** attempt)
+                continue
+
+            remote_size = None
+            cl = dl_resp.headers.get("content-length")
+            if cl:
+                try:
+                    remote_size = int(cl) + part_size
+                except ValueError:
+                    pass
+
+            mode = "ab" if part_size else "wb"
+            t0 = time.perf_counter()
+            downloaded = part_size
+            last_rpt = 0.0
+
+            try:
+                with open(tmp, mode) as f:
+                    for chunk in dl_resp.iter_content(chunk_size=CHUNK_SIZE):
+                        if stop.is_set():
+                            return results
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        downloaded += len(chunk)
+
+                        now = time.perf_counter()
+                        if now - last_rpt >= 0.5 or downloaded == remote_size:
+                            elap = now - t0
+                            spd = (downloaded - part_size) / elap if elap > 0 else 0
+                            pct = (downloaded / remote_size * 100) if remote_size else 0
+                            _notify("downloading", safe_name, downloaded,
+                                    remote_size, spd, pct)
+                            last_rpt = now
+
+                # 校验文件大小
+                if remote_size and os.path.getsize(tmp) != remote_size:
+                    if attempt < MAX_RETRIES:
+                        time.sleep(2 ** attempt)
+                    continue
+
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                os.rename(tmp, filepath)
+
+                elap = time.perf_counter() - t0
+                avg = (downloaded - part_size) / elap if elap > 0 else 0
+                _notify("completed", safe_name, downloaded,
+                        remote_size or downloaded, avg, 100)
+                results.append(filepath)
+                break
+
+            except requests.RequestException as e:
+                # ponytail: 保留 .part 用于断点续传
+                if attempt == MAX_RETRIES:
+                    _notify("failed", f"{name}: {e}")
+                else:
+                    time.sleep(2 ** attempt)
+        else:
+            # 所有重试都失败了
             if os.path.exists(tmp):
                 os.remove(tmp)
+            _notify("failed", f"{name}: max retries exceeded")
 
     return results
