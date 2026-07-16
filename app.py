@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+# ! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 自动化下载工具 —— Web 服务
@@ -31,6 +31,7 @@ from utils.pixeldrain_downloader import download as _pixeldrain_dl
 from utils.anonfilesnew_downloader import download as _anonfilesnew_dl
 from utils.biteblob_downloader import download as _biteblob_dl
 from utils.mediafire_downloader import download as _mediafire_dl
+from utils.cloud_mail_ru_downloader import download as _cloud_mail_ru_dl
 from utils.transferit_downloader import download as _transferit_dl
 
 # =============================================================================
@@ -48,23 +49,26 @@ SITE_PATTERNS: dict[str, str] = {
     r"anonfilesnew\.com/": "anonfilesnew.com",
     r"biteblob\.com/": "biteblob.com",
     r"mediafire\.com/file/": "mediafire.com",
+    r"cloud\.mail\.ru/public/": "cloud.mail.ru",
 }
 
 # 下载器调度表：site → (下载函数, 是否返回列表)
 # gofile 返回 list[str]，其余返回 str|None，通过 returns_list 标记统一处理
 _DOWNLOADERS: dict[str, tuple[Callable, bool]] = {
-    "gofile.io":        (_gofile_dl,        True),
-    "upload.ee":        (_uploadee_dl,      False),
-    "pixeldrain.com":   (_pixeldrain_dl,    False),
-    "transfer.it":      (_transferit_dl,    False),
-    "anonfilesnew.com": (_anonfilesnew_dl,  False),
-    "biteblob.com":     (_biteblob_dl,      False),
-    "mediafire.com":    (_mediafire_dl,     False),
+    "gofile.io": (_gofile_dl, True),
+    "upload.ee": (_uploadee_dl, False),
+    "pixeldrain.com": (_pixeldrain_dl, False),
+    "transfer.it": (_transferit_dl, False),
+    "anonfilesnew.com": (_anonfilesnew_dl, False),
+    "biteblob.com": (_biteblob_dl, False),
+    "mediafire.com": (_mediafire_dl, False),
+    "cloud.mail.ru": (_cloud_mail_ru_dl, True),
 }
 
 # =============================================================================
 # 任务状态
 # =============================================================================
+
 
 @dataclass
 class TaskInfo:
@@ -100,16 +104,16 @@ class TaskInfo:
 # =============================================================================
 
 _lock = Lock()
-_tasks: list[TaskInfo] = []           # 所有任务列表（含已完成）
-_next_index: int = 1                  # 全局递增的任务编号
-_seen_urls: set[str] = set()          # 已提交过的 URL（用于去重）
-_output_dir: str = ""                 # 当前输出目录
+_tasks: list[TaskInfo] = []  # 所有任务列表（含已完成）
+_next_index: int = 1  # 全局递增的任务编号
+_seen_urls: set[str] = set()  # 已提交过的 URL（用于去重）
+_output_dir: str = ""  # 当前输出目录
 _status_message: str = "就绪"
 
 # 下载引擎
 _executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 _stop_event = Event()
-_active_count: int = 0                # 当前活跃（未完成）的任务数
+_active_count: int = 0  # 当前活跃（未完成）的任务数
 
 
 def _set_status(msg: str) -> None:
@@ -141,6 +145,7 @@ def _get_state() -> dict:
 # URL 分类
 # =============================================================================
 
+
 def classify_url(url: str) -> str | None:
     """根据 URL 判断所属网站。"""
     url_lower = url.strip().lower()
@@ -153,6 +158,7 @@ def classify_url(url: str) -> str | None:
 # =============================================================================
 # 下载调度（持久线程池）
 # =============================================================================
+
 
 def _dispatch(task: TaskInfo, stop: Event) -> None:
     """在线程池中执行单个下载任务。"""
@@ -178,8 +184,9 @@ def _dispatch(task: TaskInfo, stop: Event) -> None:
 
     try:
         task.status = "connecting"
-        result = download_fn(task.url, _output_dir,
-                             progress_callback=cb, stop_event=stop)
+        result = download_fn(
+            task.url, _output_dir, progress_callback=cb, stop_event=stop
+        )
         if result:
             task.status = "completed"
             task.percent = 100.0
@@ -242,6 +249,7 @@ def index() -> str:
 
 
 # ---- API 路由 ----
+
 
 @app.route("/api/submit", methods=["POST"])
 def api_submit():
@@ -312,16 +320,18 @@ def api_submit():
     if was_active:
         new_submitted = _submit_waiting_tasks()
 
-    return jsonify({
-        "ok": True,
-        "total_new": total_new,
-        "supported_new": len(new_supported),
-        "unsupported_new": len(new_unsupported_urls),
-        "skipped_dup": skipped_dup,
-        "auto_started": new_submitted,
-        "unsupported_urls": new_unsupported_urls,
-        "output_dir": output_dir,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "total_new": total_new,
+            "supported_new": len(new_supported),
+            "unsupported_new": len(new_unsupported_urls),
+            "skipped_dup": skipped_dup,
+            "auto_started": new_submitted,
+            "unsupported_urls": new_unsupported_urls,
+            "output_dir": output_dir,
+        }
+    )
 
 
 @app.route("/api/start", methods=["POST"])
@@ -397,7 +407,9 @@ def api_clear():
     global _tasks
     with _lock:
         # 仅保留 waiting/connecting/downloading 的任务
-        _tasks = [t for t in _tasks if t.status in ("waiting", "connecting", "downloading")]
+        _tasks = [
+            t for t in _tasks if t.status in ("waiting", "connecting", "downloading")
+        ]
     _set_status("已清空已完成的任务")
     return jsonify({"ok": True, "message": "已清空"})
 
@@ -414,6 +426,7 @@ def api_stream():
     Server-Sent Events (SSE) 端点。
     前端通过 EventSource 连接，实时接收状态更新。
     """
+
     def generate():
         last_hash = ""
         while True:
@@ -455,7 +468,7 @@ if __name__ == "__main__":
 ╠══════════════════════════════════════════════╣
 ║  支持: gofile.io | upload.ee | pixeldrain   ║
 ║        mediafire | transfer.it | anonfilesnew║
-║        biteblob                              ║
+║        biteblob | cloud.mail.ru             ║
 ║  地址: http://{args.host}:{args.port}                  ║
 ║  线程: {MAX_WORKERS}                                ║
 ╚══════════════════════════════════════════════╝
