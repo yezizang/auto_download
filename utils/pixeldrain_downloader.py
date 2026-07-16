@@ -18,6 +18,8 @@ from typing import Callable
 import requests
 import pixeldrain
 
+from utils.logger import error as _log_error
+
 
 # =============================================================================
 # 常量
@@ -80,6 +82,7 @@ class PixeldrainDownloader:
         self._file_id = self._extract_id()
         if not self._file_id:
             self._notify("failed", "Invalid URL", 0, None, 0, 0)
+            _log_error(f"pixeldrain: invalid URL, could not extract file_id: {self._url}")
             return None
 
         # 2. 获取文件信息（用 self._session 走代理，不用 pixeldrain.info）
@@ -93,6 +96,7 @@ class PixeldrainDownloader:
             file_info = resp.json()
         except Exception:
             self._notify("failed", "Failed to get file info", 0, None, 0, 0)
+            _log_error(f"pixeldrain: failed to get file info for {file_id}")
             return None
 
         filename = file_info.get("name") or self._file_id
@@ -207,6 +211,7 @@ class PixeldrainDownloader:
                     time.sleep(2 ** attempt)
 
         self._notify("failed", filename, 0, remote_size, 0, 0)
+        _log_error(f"pixeldrain: download failed after retries: {url} → {filename}")
         return False
 
     @staticmethod

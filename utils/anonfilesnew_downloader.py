@@ -22,6 +22,8 @@ from typing import Callable
 
 import requests
 
+from utils.logger import error as _log_error
+
 # =============================================================================
 # 常量
 # =============================================================================
@@ -148,6 +150,7 @@ def download(
         download_url = _decode_download_url(resp.text)
     except Exception as e:
         _notify("failed", str(e)[:120], 0, None, 0, 0)
+        _log_error(f"anonfilesnew: failed to fetch or decode page: {url}", exc=e)
         return None
 
     if stop.is_set():
@@ -159,6 +162,7 @@ def download(
                             timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     except Exception:
         _notify("failed", "Failed to fetch file info", 0, None, 0, 0)
+        _log_error(f"anonfilesnew: HEAD request failed: {download_url}")
         return None
 
     cd = head.headers.get("content-disposition", "")
@@ -281,4 +285,5 @@ def download(
                 time.sleep(2 ** attempt)
 
     _notify("failed", filename, 0, remote_size, 0, 0)
+    _log_error(f"anonfilesnew: download failed after retries: {url} → {filename}")
     return None

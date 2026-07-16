@@ -23,6 +23,8 @@ from typing import Callable
 from threading import Event
 from bs4 import BeautifulSoup
 
+from utils.logger import error as _log_error
+
 # =============================================================================
 # 常量
 # =============================================================================
@@ -379,6 +381,7 @@ def downloader(
     download_url = _extract_download_url(url, stop, _notify)
     if not download_url:
         _notify("failed", "Failed to extract download link", 0, None, 0, 0)
+        _log_error(f"upload.ee: failed to extract download link from {url}")
         return None
 
     # Step 2: 探测远程文件信息
@@ -428,5 +431,6 @@ def downloader(
         )
     else:
         _notify("failed", filename, 0, remote_size, 0, 0)
+        _log_error(f"upload.ee: download failed after retries: {download_url} → {filename}")
 
     return filepath if success else None

@@ -21,6 +21,8 @@ import time
 from hashlib import sha256
 from itertools import count
 from concurrent.futures import ThreadPoolExecutor
+
+from utils.logger import error as _log_error
 from threading import Event
 from typing import Callable
 
@@ -217,6 +219,7 @@ class GoFileDownloader:
         )
         if not response:
             self._notify_progress("error", "Failed to fetch content info", None, 0, None, 0)
+            _log_error(f"gofile: failed to fetch content info for content_id={content_id}")
             return
 
         json_response = response.json()
@@ -232,6 +235,7 @@ class GoFileDownloader:
             and data["passwordStatus"] != "passwordOk"
         ):
             self._notify_progress("error", "Password required or incorrect", None, 0, None, 0)
+            _log_error(f"gofile: password required or incorrect for {self._url}")
             return
 
         # 文件类型：直接注册
@@ -313,6 +317,7 @@ class GoFileDownloader:
                 continue
 
         self._notify_progress("failed", filename, 0, None, 0, 0)
+        _log_error(f"gofile: download failed after retries: {file_info.get('link', '?')} → {filename}")
         return None
 
     def _write_chunks(

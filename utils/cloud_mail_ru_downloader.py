@@ -19,6 +19,8 @@ from typing import Callable
 
 import requests
 
+from utils.logger import error as _log_error
+
 CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES = 3
 TIMEOUT = (15, 120)
@@ -73,6 +75,7 @@ def _extract_cloud_settings(html: str) -> dict:
         errors="replace",
     )
     if result.returncode != 0:
+        _log_error(f"Node.js cloudSettings extraction failed: {result.stderr[:500]}")
         raise RuntimeError(f"Node.js failed: {result.stderr}")
     return json.loads(result.stdout.strip())
 
@@ -99,6 +102,7 @@ def resolve(url: str) -> list[dict]:
             break
         except requests.RequestException as e:
             if attempt == MAX_RETRIES:
+                _log_error(f"cloud.mail.ru resolve: failed to fetch page {url}", exc=e)
                 raise RuntimeError(f"Failed to fetch page: {e}")
             time.sleep(2 ** attempt)
 
@@ -128,7 +132,8 @@ def resolve(url: str) -> list[dict]:
                 break
             except requests.RequestException as e:
                 if attempt == MAX_RETRIES:
-                    continue  # 跳过这个文件
+                    _log_error(f"cloud.mail.ru zip API failed for: {name}", exc=e)
+                    continue
                 time.sleep(2 ** attempt)
         else:
             continue
@@ -281,6 +286,7 @@ def download(
 
     if os.path.exists(tmp):
         os.remove(tmp)
+    _log_error(f"cloud.mail.ru download failed after {MAX_RETRIES} retries: {url} → {safe_name}")
     _notify("failed", f"{safe_name}: max retries exceeded")
     return None
 

@@ -19,6 +19,8 @@ from typing import Callable
 
 from transferit import Transferit, TransferNode
 
+from utils.logger import error as _log_error
+
 # =============================================================================
 # 常量
 # =============================================================================
@@ -133,4 +135,5 @@ def download(
     except Exception as e:
         if not stop.is_set():
             _notify("failed", str(e)[:120], 0, None, 0, 0)
+        _log_error(f"transfer.it: download failed: {url}", exc=e)
         return None

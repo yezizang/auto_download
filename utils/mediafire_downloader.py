@@ -17,6 +17,8 @@ from urllib.parse import urlparse, unquote
 import requests
 from bs4 import BeautifulSoup
 
+from utils.logger import error as _log_error
+
 CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES = 3
 TIMEOUT = (15, 120)
@@ -81,11 +83,13 @@ def download(
         resp.raise_for_status()
     except Exception as e:
         _notify("failed", str(e)[:120])
+        _log_error(f"mediafire: failed to fetch page: {url}", exc=e)
         return None
 
     download_url = _extract_download_url(resp.text)
     if not download_url:
         _notify("failed", "Download link not found")
+        _log_error(f"mediafire: download link not found: {url}")
         return None
 
     if stop.is_set():
@@ -190,4 +194,5 @@ def download(
                 time.sleep(2 ** attempt)
 
     _notify("failed", filename)
+    _log_error(f"mediafire: download failed after retries: {download_url} → {filename}")
     return None

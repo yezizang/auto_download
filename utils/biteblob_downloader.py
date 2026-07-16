@@ -26,6 +26,8 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from utils.logger import error as _log_error
+
 # =============================================================================
 # 常量
 # =============================================================================
@@ -192,11 +194,13 @@ def download(
         resp.raise_for_status()
     except Exception as e:
         _notify("failed", str(e)[:120], 0, None, 0, 0)
+        _log_error(f"biteblob: failed to fetch page: {url}", exc=e)
         return None
 
     dl_path = _extract_download_path(resp.text)
     if not dl_path:
         _notify("failed", "Download link not found on page", 0, None, 0, 0)
+        _log_error(f"biteblob: download link not found on page: {url}")
         return None
 
     download_url = urljoin("https://biteblob.com", dl_path)
@@ -314,4 +318,5 @@ def download(
                 time.sleep(2**attempt)
 
     _notify("failed", filename, 0, None, 0, 0)
+    _log_error(f"biteblob: download failed after retries: {download_url} → {filename}")
     return None

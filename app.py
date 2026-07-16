@@ -34,6 +34,7 @@ from utils.mediafire_downloader import download as _mediafire_dl
 from utils.cloud_mail_ru_downloader import download as _cloud_mail_ru_file_dl
 from utils.cloud_mail_ru_downloader import resolve as _cloud_mail_ru_resolve
 from utils.transferit_downloader import download as _transferit_dl
+from utils.logger import set_log_path, error as _log_error
 
 # =============================================================================
 # 配置
@@ -195,9 +196,12 @@ def _dispatch(task: TaskInfo, stop: Event) -> None:
             task.result_path = result[0] if returns_list else result
         else:
             task.status = "failed" if not stop.is_set() else "waiting"
+            if task.status == "failed":
+                _log_error(f"[{task.site}] download returned empty: {task.url}")
     except Exception as e:
         task.status = "failed"
         task.error = str(e)
+        _log_error(f"[{task.site}] {task.url}", exc=e)
     finally:
         with _lock:
             _active_count -= 1
@@ -271,6 +275,7 @@ def api_submit():
         output_dir = os.path.join(os.getcwd(), "downloads")
 
     os.makedirs(output_dir, exist_ok=True)
+    set_log_path(os.path.join(output_dir, "errors.log"))
 
     with _lock:
         _output_dir = output_dir
