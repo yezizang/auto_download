@@ -42,8 +42,16 @@ python app.py --host 0.0.0.0 --port 8080
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
 | `AUTO_DL_WORKERS` | `5` | 并发下载线程数 |
+| `GOFILE_DL_BASE_URL` | `http://192.168.3.160:2355` | gofile-dl 服务地址 |
+| `GOFILE_DL_USERNAME` / `GOFILE_DL_PASSWORD` | `admin` / `Abc123!!` | gofile-dl 的 Basic Auth |
+| `GOFILE_DL_HOST_DIR` | `/opt/gofile-dl/downloads` | gofile-dl 容器 `/data` 映射到的宿主机目录 |
+| `GOFILE_DL_REMOTE_DIR` | `/data` | gofile-dl 容器内下载目录（勿改，除非卷映射不同） |
 
 各下载器支持标准代理环境变量（`ALL_PROXY`、`HTTPS_PROXY`）来走代理。
+
+> **gofile.io 已改为转发模式**：不再直连 gofile.io API，而是把链接提交给本机跑的
+> gofile-dl 容器（见 `test/docker-compose.yml`）下载，完成后把结果从
+> `GOFILE_DL_HOST_DIR` 拍平复制回你在前端指定的输出目录。
 
 ## 功能特性
 

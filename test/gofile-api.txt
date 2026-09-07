@@ -1,0 +1,397 @@
+可以。这个项目的后端本来就是 Flask HTTP 接口，自带网页只是在调这些接口。你不用重写下载逻辑，**继续跑现在的 Docker 容器当 API 服务**，自己写前端去调即可。
+
+仓库里没有 OpenAPI 文档，接口都写在 `app.py`。下面按 **v1.8.2** 实际代码整理。
+
+---
+
+## 先搞清限制（自己做前端必看）
+
+| 点 | 实际情况 |
+|---|---|
+| 基址 | `http://192.168.3.160:2355`（你现在的服务） |
+| 鉴权 | HTTP Basic Auth（你开了 `AUTH_ENABLED=true`） |
+| CSRF | 所有 **POST 都要带 CSRF**，否则 400 |
+| 请求体 | POST 只读 `request.form`，**不要发 JSON** |
+| CORS | **没有**跨域头。前端若在别的端口/域名，浏览器会拦 |
+| 任务存储 | 全在内存里，容器重启后任务列表清空，磁盘文件还在 |
+| 下载目录 | 必须是容器内路径，推荐 `/data` |
+
+推荐架构：Nginx 把你的前端和这个 API 反代到同一域名，例如：
+
+- `https://dl.example.com/` → 你的前端
+- `https://dl.example.com/api/` → `http://127.0.0.1:2355/`
+
+这样没有跨域，Cookie/CSRF 也好处理。
+
+---
+
+## 认证
+
+请求头：
+
+```http
+Authorization: Basic base64(用户名:密码)
+```
+
+curl 写法：
+
+```bash
+-u 'admin:你的密码'
+```
+
+`GET /health` **不需要**登录，其余业务接口都要。
+
+---
+
+## CSRF 怎么拿
+
+Flask-WTF 开着，官方页是从首页隐藏域取 token：
+
+```html
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+```
+
+POST 时放进请求头：
+
+```http
+X-CSRFToken: <token>
+```
+
+自己前端的流程：
+
+1. `GET /`（带 Basic Auth）
+2. 从 HTML 里解析 `input[name=csrf_token]` 的 value  
+   同时保存响应里的 `Set-Cookie`（session）
+3. 之后所有 POST 带上 **同一个 Cookie + X-CSRFToken**
+
+示例：
+
+```bash
+BASE=http://192.168.3.160:2355
+USER='admin:你的密码'
+
+curl -s -c /tmp/gf.ck -u "$USER" "$BASE/" \
+  | grep -oP 'name="csrf_token" value="\K[^"]+' > /tmp/gf.csrf
+
+CSRF=$(cat /tmp/gf.csrf)
+
+curl -s -b /tmp/gf.ck -u "$USER" \
+  -H "X-CSRFToken: $CSRF" \
+  -X POST "$BASE/start" \
+  -d "url=https://gofile.io/d/xxxxxxxx" \
+  -d "directory=/data"
+```
+
+没有 token 或 session 过期，POST 会失败（典型是 CSRF token missing）。
+
+---
+
+## 接口一览
+
+### 1. `GET /health` — 健康检查（免登录）
+
+```bash
+curl -s http://192.168.3.160:2355/health
+```
+
+```json
+{
+  "status": "ok",
+  "timestamp": 1757220000.12,
+  "system": { "system": "Linux", "python_version": "3.14.x", "cpu_usage": 2.1,
+    "memory": { "total": 0, "available": 0, "percent": 0 },
+    "disk": { "total": 0, "free": 0, "percent": 0 }
+  },
+  "application": { "status": "healthy", "active_tasks": 1, "version": "1.8.2" },
+  "directories": { "base_dir": "/data", "exists": true, "writable": true }
+}
+```
+
+`directories.writable` 为 `false` 时，就是你之前那种权限问题。
+
+---
+
+### 2. `POST /start` — 开始下载（核心）
+
+- 成功：**202** + `{ "task_id": "uuid" }`
+- 缺 url：**400** `{ "error": "URL is required" }`
+
+表单字段：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `url` | 是 | `https://gofile.io/d/xxxx` |
+| `directory` | 建议填 | 容器内目录，填 **`/data`** |
+| `password` | 否 | 分享密码 |
+| `throttle` | 否 | 限速，单位 KB/s，整数 |
+| `retries` | 否 | 重试次数，默认 3，范围 0–10 |
+| `strip_emojis` | 否 | 固定字符串 `true` 才生效 |
+| `incremental` | 否 | `true` 时跳过已有文件 |
+| `folder_pattern` | 否 | 增量模式下从文件夹名剥前缀，默认 `NEW FILES in \|NEW FILES in \|` |
+| `premium_token` | 否 | 本次任务用的 Gofile token，不填则用环境变量 |
+
+```bash
+curl -s -b /tmp/gf.ck -u "$USER" \
+  -H "X-CSRFToken: $CSRF" \
+  -X POST "$BASE/start" \
+  -d "url=https://gofile.io/d/AbCdEf" \
+  -d "directory=/data" \
+  -d "password=" \
+  -d "retries=3" \
+  -d "incremental=true"
+```
+
+返回：
+
+```json
+{ "task_id": "3f2c1a8e-...." }
+```
+
+不填 `directory` 会落到容器内 `/app/output`，宿主机看不到。
+
+---
+
+### 3. `GET /tasks` — 任务列表（建议 3 秒轮询）
+
+官方网页就是每 3 秒拉一次。
+
+```bash
+curl -s -u "$USER" "$BASE/tasks"
+```
+
+```json
+{
+  "3f2c1a8e-....": {
+    "progress": 42,
+    "overall_progress": 42,
+    "current_folder": "05.08.2026 FORUM DATA DevelMakss",
+    "download_speed": 1024,
+    "status": "running",
+    "error_message": "",
+    "url": "https://gofile.io/d/AbCdEf",
+    "name": "data",
+    "timestamp": 1757220123.45,
+    "files": [
+      { "file": "xxx.zip", "progress": 100, "size": 12345678 }
+    ],
+    "paused": false
+  }
+}
+```
+
+`status` 常见值：`running` / `paused` / `completed` / `error` / `cancelled`
+
+`files[].progress`：`100` 完成，其它为百分比；未完成文件可能带 `.part`。
+
+---
+
+### 4. `GET /progress/<task_id>` — 单个任务粗进度
+
+```bash
+curl -s -u "$USER" "$BASE/progress/3f2c1a8e-...."
+```
+
+```json
+{ "task_id": "3f2c1a8e-....", "progress": 42 }
+```
+
+不存在：`404` `{ "error": "Invalid task id" }`
+
+一般用 `/tasks` 就够了。
+
+---
+
+### 5. `POST /pause/<task_id>` — 暂停 / 继续（开关）
+
+再 POST 一次会从暂停恢复。
+
+```bash
+curl -s -b /tmp/gf.ck -u "$USER" -H "X-CSRFToken: $CSRF" \
+  -X POST "$BASE/pause/3f2c1a8e-...."
+```
+
+```json
+{ "task_id": "3f2c1a8e-....", "paused": true, "status": "paused" }
+```
+
+---
+
+### 6. `POST /cancel/<task_id>` — 取消任务（不停删文件）
+
+```bash
+curl -s -b /tmp/gf.ck -u "$USER" -H "X-CSRFToken: $CSRF" \
+  -X POST "$BASE/cancel/3f2c1a8e-...."
+```
+
+```json
+{ "task_id": "3f2c1a8e-....", "status": "cancelled" }
+```
+
+---
+
+### 7. `POST /remove/<task_id>` — 只从列表去掉
+
+不删磁盘文件。
+
+```bash
+curl -s -b /tmp/gf.ck -u "$USER" -H "X-CSRFToken: $CSRF" \
+  -X POST "$BASE/remove/3f2c1a8e-...."
+```
+
+```json
+{ "message": "Task 3f2c1a8e-.... removed." }
+```
+
+---
+
+### 8. `POST /delete/<task_id>` — 删任务 + 删已下文件
+
+会在磁盘上删这个任务对应目录，小心用。
+
+成功示例：
+
+```json
+{ "message": "Task 3f2c1a8e-.... files deleted and task removed." }
+```
+
+文件本来就没了：
+
+```json
+{ "message": "Files already removed or not found; task removed." }
+```
+
+---
+
+### 9. `GET /browse?path=` — 列目录（给选择保存路径用）
+
+只能在 `BASE_DIR`（你这边是 `/data`）之内逛，出不去。
+
+```bash
+curl -s -u "$USER" "$BASE/browse?path=/data"
+```
+
+```json
+{
+  "directories": ["subdir1"],
+  "current": "/data",
+  "base": "/data",
+  "at_base": true
+}
+```
+
+`path` 为空或非法时回到 `/data`。`path` 不是目录：`400` `{ "error": "Invalid path" }`
+
+---
+
+### 10. `GET /` — 官方网页（你自己做前端可不用）
+
+POST `/` 会转去 `/start`，自定义前端直接调 `/start`。
+
+---
+
+## 推荐前端调用流程
+
+```text
+页面加载
+  GET /health
+  GET /  → 取出 csrf_token，保存 cookie
+  GET /browse?path=/data  → 显示保存目录
+  GET /tasks              → 画任务列表
+
+用户点下载
+  POST /start  (form: url, directory=/data, password, ...)
+  拿到 task_id
+
+每 3 秒
+  GET /tasks
+  按 status 更新进度条
+  completed / error / cancelled 停止该任务轮询
+
+暂停 / 继续
+  POST /pause/<id>
+
+取消
+  POST /cancel/<id>
+
+从列表清除
+  POST /remove/<id>
+```
+
+前端伪代码：
+
+```javascript
+const BASE = ""; // 同域反代时留空
+const auth = "Basic " + btoa("admin:你的密码");
+let csrf = "";
+
+async function boot() {
+  const html = await fetch(BASE + "/", { headers: { Authorization: auth } }).then(r => r.text());
+  csrf = html.match(/name="csrf_token" value="([^"]+)"/)[1];
+}
+
+function post(path, formObj = {}) {
+  const body = new URLSearchParams(formObj);
+  return fetch(BASE + path, {
+    method: "POST",
+    headers: {
+      Authorization: auth,
+      "X-CSRFToken": csrf,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    credentials: "include",
+    body
+  }).then(r => r.json());
+}
+
+function startDownload(url) {
+  return post("/start", { url, directory: "/data", incremental: "true" });
+}
+
+function loadTasks() {
+  return fetch(BASE + "/tasks", { headers: { Authorization: auth }, credentials: "include" })
+    .then(r => r.json());
+}
+```
+
+注意：`incremental`、`strip_emojis` 必须是字符串 `"true"`，其它值都算关。
+
+---
+
+## 自己做前端时怎么部署
+
+**方案 A（最省事）**：Nginx 同域反代，容器保持现状。
+
+```nginx
+server {
+    listen 80;
+    server_name 192.168.3.160;
+
+    location / {
+        root /var/www/gofile-ui;
+        try_files $uri /index.html;
+    }
+
+    location ~ ^/(start|tasks|progress|pause|cancel|remove|delete|browse|health)/? {
+        proxy_pass http://127.0.0.1:2355;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Cookie $http_cookie;
+        proxy_pass_header Set-Cookie;
+    }
+}
+```
+
+官方面板若仍占着 `/`，把 API 单独挂到 `/` 以外，或把 2355 只绑 `127.0.0.1`，对外只走 Nginx。
+
+**方案 B**：前端和 API 不同源。原项目没有 CORS，要改 `app.py` 加 Flask-CORS，并把 API 路由 `@csrf.exempt`。这属于改源码，升级镜像会被覆盖。
+
+---
+
+## 不能指望的东西
+
+- 没有 WebSocket，只能轮询 `/tasks`
+- 没有“列出已下载文件内容”的 API，只有浏览子目录名
+- 没有批量 URL 一条接口，要批量就循环 `POST /start`
+- 任务状态不落盘，重启容器列表会空
+- 这不是 Gofile 官方 API，只是这个下载器自己的控制面
+
+你现在的容器不用拆，把它当 API 网关用就行。若要，我可以按你选的栈（纯 HTML / Vue / React）直接给一版可运行的最小前端，专门对接这些接口。

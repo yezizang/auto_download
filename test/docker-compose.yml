@@ -1,0 +1,35 @@
+services:
+  gofile-dl:
+    image: ghcr.io/martadams89/gofile-dl:1.8.2
+    container_name: gofile-dl
+    ports:
+      - "2355:2355"
+    volumes:
+      - /opt/gofile-dl/downloads:/data
+      - /opt/gofile-dl/config:/config
+    environment:
+      - PORT=2355
+      - HOST=0.0.0.0
+      - BASE_DIR=/data
+      - CONFIG_DIR=/config
+      - SECRET_KEY=e39a38333627367c1f1b4dc5641f024f2e30d921b4e35b26703351c4b20f4dbd
+      - AUTH_ENABLED=true
+      - AUTH_USERNAME=admin
+      - AUTH_PASSWORD=Abc123!!
+      # 有 Gofile 会员再取消注释
+      # - GOFILE_PREMIUM_TOKEN=你的token
+      # 接口再改 salt 时再填
+      # - GOFILE_WT_SALT=12af056dacea0b
+      # 需要代理访问 api.gofile.io 时再填
+      # - GOFILE_PROXY=socks5://127.0.0.1:1080
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2355/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

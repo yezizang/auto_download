@@ -1,730 +1,234 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GoFile 下载器模块（重构版）
-==========================
-从 GoFile (https://gofile.io) 网盘下载文件。
+GoFile 下载器（通过 gofile-dl HTTP API 转发）
+============================================
+不再直连 api.gofile.io（会被其 edge 按 IP / TLS 指纹拦截，这是旧版失效的根因），
+而是把下载委托给本机部署的 gofile-dl 容器（ghcr.io/martadams89/gofile-dl，接口见
+test/gofile-api.txt）：
 
-基于 gofile-dl (https://github.com/martadams89/gofile-dl) 的 API 逻辑重写，
-适配 2026 年 7 月 GoFile 改版后的 API。
+  1. POST /start 创建远程任务，gofile-dl 把文件下载到容器 /data
+     （即宿主机上的 _HOST_DIR，默认 /opt/gofile-dl/downloads，由 docker 卷映射）。
+  2. 轮询 GET /tasks 镜像进度到 progress_callback。
+  3. 远程完成后，把 _HOST_DIR 下本次任务产生的文件拍平复制回 output_dir
+     （保持旧版扁平化行为，同名文件自动加 (1)(2) 后缀）。
 
-关键变更（相对于旧版）:
-  - 账户创建时不发送 X-Website-Token
-  - 使用完整 Chrome User-Agent（必须与 website token 计算的 UA 一致）
-  - 内容 API 使用新的查询参数格式
-  - 下载请求携带 Cookie: accountToken=...
-  - 支持 token 时间窗口边界回退重试
-  - 支持 rate-limit 退避重试
-  - 可选 curl_cffi TLS 指纹模拟（通过 GOFILE_IMPERSONATE 环境变量）
-
-公开 API:
+保持旧公开 API 不变（app.py 无需改动）:
   download(url, output_dir, *, password, progress_callback, stop_event) -> list[str] | None
 """
 
 import os
-import time
-import shutil
 import re
-from hashlib import sha256
-from itertools import count
-from concurrent.futures import ThreadPoolExecutor
+import shutil
+import tempfile
+import time
 from threading import Event
 from typing import Callable
 
 import requests
-from requests.structures import CaseInsensitiveDict
 
 from utils.logger import error as _log_error
 
 # =============================================================================
-# 常量
+# 配置（全部可用环境变量覆盖）
 # =============================================================================
 
-CHUNK_SIZE: int = 2 * 1024 * 1024  # 2 MB
-MAX_RETRIES: int = 5
-TIMEOUT: float = 30.0
-CONTENT_TIMEOUT: float = 45.0
-MAX_WORKERS: int = 5
+# gofile-dl 服务地址
+BASE_URL: str = os.environ.get("GOFILE_DL_BASE_URL", "http://192.168.3.160:2355")
+# HTTP Basic Auth（docker-compose 里的 AUTH_USERNAME / AUTH_PASSWORD）
+AUTH_USER: str = os.environ.get("GOFILE_DL_USERNAME", "admin")
+AUTH_PASS: str = os.environ.get("GOFILE_DL_PASSWORD", "Abc123!!")
+# gofile-dl 容器内下载根目录（POST /start 的 directory 字段，须在 BASE_DIR 内）
+REMOTE_DIR: str = os.environ.get("GOFILE_DL_REMOTE_DIR", "/data")
+# REMOTE_DIR 映射到的宿主机目录（docker-compose 的 volume 宿主机侧）
+HOST_DIR: str = os.environ.get("GOFILE_DL_HOST_DIR", "/opt/gofile-dl/downloads")
+# 轮询间隔（秒）
+POLL_SECONDS: float = float(os.environ.get("GOFILE_DL_POLL_INTERVAL", "2.0"))
 
-# 代理配置（优先级：环境变量 GOFILE_PROXY > ALL_PROXY > HTTPS_PROXY > 默认代理）
-PROXY: str = (
-    os.environ.get("GOFILE_PROXY", "").strip()
-    or os.environ.get("ALL_PROXY")
-    or os.environ.get("HTTPS_PROXY")
-    or "http://127.0.0.1:7891"
-)
-
-# GoFile API edge 封锁检测关键词
-_RESET_HINTS: tuple[str, ...] = (
-    "reset by peer",
-    "connection aborted",
-    "err_empty_response",
-    "recv failure",
-    "curl: (35)",
-    "curl: (56)",
-    "connection reset",
-)
-
-# GoFile 2026 API 要求的完整 Chrome User-Agent（必须与 website token 计算一致）
-GOFILE_USER_AGENT: str = os.environ.get(
-    "GOFILE_USER_AGENT",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-)
-GOFILE_LANGUAGE: str = os.environ.get("GOFILE_LANGUAGE", "en-US")
-
-# website token 的盐值，取自 gofile.io 前端 wt.obf.js
-GOFILE_WT_SALT: str = os.environ.get("GOFILE_WT_SALT", "9844d94d963d30")
-WT_WINDOW_SECONDS: int = 14400  # 4 小时轮换窗口
-
-# 内容 API 查询参数（匹配 GoFile 前端 2026 版）
-CONTENTS_QUERY_PARAMS: dict = {
-    "contentFilter": "",
-    "page": 1,
-    "pageSize": 1000,
-    "sortField": "createTime",
-    "sortDirection": -1,
-}
-
-# curl_cffi 可选 TLS 指纹模拟
-GOFILE_IMPERSONATE: str = os.environ.get("GOFILE_IMPERSONATE", "chrome").strip()
-try:
-    from curl_cffi import requests as _cffi_requests  # type: ignore
-
-    _HAS_CFFI: bool = bool(GOFILE_IMPERSONATE) and GOFILE_IMPERSONATE.lower() != "off"
-except ImportError:
-    _cffi_requests = None
-    _HAS_CFFI = False
+_TIMEOUT: float = 15.0
+_CSRF_RE = re.compile(r'name="csrf_token" value="([^"]+)"')
 
 
 # =============================================================================
-# 辅助函数
+# gofile-dl HTTP 客户端
 # =============================================================================
 
 
-def generate_website_token(account_token: str, window_offset: int = 0) -> str:
-    """
-    生成 GoFile API 需要的动态 X-Website-Token。
+class _GofileDlApi:
+    """对 gofile-dl 控制面的最小封装：Basic Auth + Flask-WTF CSRF + session cookie。"""
 
-    算法来源: gofile.io 前端 wt.obf.js
-        sha256(f"{user_agent}::{language}::{account_token}::{window}::{salt}")
-
-    每 4 小时轮换一次 (window = floor(unix_time / 14400))。
-
-    Args:
-        account_token: 账户令牌（来自 POST /accounts）
-        window_offset: 时间窗口偏移（0=当前窗口, -1=上一个窗口）
-    """
-    window = int(time.time() // WT_WINDOW_SECONDS) + window_offset
-    raw = (
-        f"{GOFILE_USER_AGENT}::{GOFILE_LANGUAGE}"
-        f"::{account_token}::{window}::{GOFILE_WT_SALT}"
-    )
-    return sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _is_edge_block(exc: Exception) -> bool:
-    """检测 GoFile API edge 是否重置了连接（说明 IP 被封锁）。"""
-    text = f"{type(exc).__name__}: {exc}".lower()
-    return any(hint in text for hint in _RESET_HINTS)
-
-
-def _api_request(method: str, url: str, **kwargs) -> requests.Response:
-    """
-    统一 HTTP 请求，支持代理和 curl_cffi TLS 指纹模拟。
-
-    当设置了 ALL_PROXY / HTTPS_PROXY 时通过代理访问；
-    当安装了 curl_cffi 且 GOFILE_IMPERSONATE != "off" 时使用浏览器 TLS 指纹。
-    """
-    if PROXY:
-        kwargs.setdefault("proxies", {"http": PROXY, "https": PROXY})
-    if _HAS_CFFI and _cffi_requests is not None:
-        return _cffi_requests.request(
-            method, url, impersonate=GOFILE_IMPERSONATE, **kwargs
-        )
-    return requests.request(method, url, **kwargs)
-
-
-# =============================================================================
-# GoFileDownloader 类
-# =============================================================================
-
-
-class GoFileDownloader:
-    """
-    GoFile 下载器。
-
-    用法:
-        dl = GoFileDownloader("https://gofile.io/d/abc123", "/save/here")
-        result = dl.run()  # 返回下载的文件路径列表
-    """
-
-    def __init__(
-        self,
-        url: str,
-        output_dir: str,
-        password: str | None = None,
-        progress_callback: Callable[[dict], None] | None = None,
-        stop_event: Event | None = None,
-    ):
-        self._url = url
-        self._output_dir = output_dir
-        self._password = password
-        self._progress_callback = progress_callback
-        self._stop_event = stop_event or Event()
-
-        # 存储文件信息: { "0": {"path": ..., "filename": ..., "link": ...}, ... }
-        self._files_info: dict[str, dict[str, str]] = {}
-
-        # 账户令牌（由 _setup_account 获取）
-        self._account_token: str = ""
-
-        # HTTP 会话
+    def __init__(self) -> None:
+        self._base = BASE_URL.rstrip("/")
         self._session = requests.Session()
-        if PROXY:
-            self._session.proxies = {"http": PROXY, "https": PROXY}
-        self._session.headers.update(
-            {
-                "User-Agent": GOFILE_USER_AGENT,
-                "Accept": "*/*",
-                "Accept-Encoding": "gzip",
-                "Connection": "keep-alive",
-                "Origin": "https://gofile.io",
-                "Referer": "https://gofile.io/",
-            }
-        )
+        self._session.auth = (AUTH_USER, AUTH_PASS)
+        self._csrf = ""
+        self._reload_csrf()
 
-        # 获取账户令牌
-        self._setup_account()
+    def _reload_csrf(self) -> None:
+        """GET / 拿 session cookie，并从页面解析 CSRF token。"""
+        resp = self._session.get(f"{self._base}/", timeout=_TIMEOUT)
+        resp.raise_for_status()
+        m = _CSRF_RE.search(resp.text)
+        if not m:
+            raise RuntimeError(
+                f"gofile-dl 页面里没找到 CSRF token（{self._base}/）"
+            )
+        self._csrf = m.group(1)
 
-    # -------------------------------------------------------------------------
-    # 账户认证
-    # -------------------------------------------------------------------------
-
-    def _setup_account(self) -> None:
-        """
-        创建匿名 GoFile 账户以获取访问令牌。
-
-        注意：账户创建 API 不需要 X-Website-Token（与内容 API 不同）。
-        """
-        for attempt in range(MAX_RETRIES):
-            if self._stop_event.is_set():
-                return
-            try:
-                resp = _api_request(
-                    "POST",
-                    "https://api.gofile.io/accounts",
-                    headers={
-                        "User-Agent": GOFILE_USER_AGENT,
-                        "Origin": "https://gofile.io",
-                    },
-                    timeout=TIMEOUT,
-                ).json()
-                if resp.get("status") == "ok":
-                    self._account_token = resp["data"]["token"]
-                    self._session.headers.update(
-                        {"Authorization": f"Bearer {self._account_token}"}
-                    )
-                    return
-                _log_error(
-                    f"gofile: account creation returned unexpected status: {resp}"
-                )
-            except requests.Timeout:
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2)
-                    continue
-                _log_error("gofile: account creation timed out after all retries")
-            except Exception as e:
-                if _is_edge_block(e):
-                    _log_error(
-                        "gofile: GoFile API edge blocked the connection "
-                        "(account creation). Try setting GOFILE_PROXY or "
-                        "installing curl_cffi."
-                    )
-                    break
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2)
-                    continue
-                _log_error(f"gofile: account creation failed: {type(e).__name__}: {e}")
-
-    # -------------------------------------------------------------------------
-    # HTTP 请求
-    # -------------------------------------------------------------------------
-
-    def _content_headers(self, window_offset: int = 0) -> dict:
-        """构建 /contents API 请求头。"""
-        return {
-            "Authorization": f"Bearer {self._account_token}",
-            "X-Website-Token": generate_website_token(
-                self._account_token, window_offset
-            ),
-            "X-BL": GOFILE_LANGUAGE,
-            "User-Agent": GOFILE_USER_AGENT,
-            "Accept": "*/*",
-            "Origin": "https://gofile.io",
-            "Referer": "https://gofile.io/",
-        }
-
-    def _get_response(self, url: str, **kwargs) -> requests.Response | None:
-        """发送 HTTP GET 请求，带自动重试。"""
-        for _ in range(MAX_RETRIES):
-            if self._stop_event.is_set():
-                return None
-            try:
-                return _api_request("GET", url, timeout=TIMEOUT, **kwargs)
-            except requests.RequestException:
+    def _post(self, path: str, data: dict) -> requests.Response:
+        for _ in range(2):  # CSRF 失效时重取一次
+            resp = self._session.post(
+                f"{self._base}{path}",
+                data=data,
+                headers={"X-CSRFToken": self._csrf},
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code == 400 and "csrf" in resp.text.lower():
+                self._reload_csrf()
                 continue
-        return None
+            resp.raise_for_status()
+            return resp
+        raise RuntimeError(f"gofile-dl POST {path} 失败：CSRF 重试无效")
 
-    # -------------------------------------------------------------------------
-    # 主流程
-    # -------------------------------------------------------------------------
+    def start(self, url: str, password: str | None) -> str:
+        payload = {
+            "url": url,
+            "directory": REMOTE_DIR,
+            "incremental": "true",  # 已下载过的文件远程跳过，可续传/增量
+        }
+        if password:
+            payload["password"] = password
+        resp = self._post("/start", payload)
+        return resp.json()["task_id"]
 
-    def run(self) -> list[str] | None:
-        """
-        执行下载流程。
-        返回下载的文件路径列表，失败返回 None。
-        """
-        # 提取内容 ID
-        content_id = self._parse_content_id(self._url)
-        if not content_id:
-            _log_error(f"gofile: failed to parse content ID from URL: {self._url}")
-            return None
+    def tasks(self) -> dict:
+        resp = self._session.get(f"{self._base}/tasks", timeout=_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
 
-        # 检查账户令牌是否获取成功
-        if not self._account_token:
-            proxy_hint = (
-                f"using proxy {PROXY}"
-                if PROXY
-                else "no proxy configured (set GOFILE_PROXY / ALL_PROXY / HTTPS_PROXY)"
-            )
-            _log_error(
-                f"gofile: no account token — account creation failed " f"({proxy_hint})"
-            )
-            return None
+    def cancel(self, task_id: str) -> None:
+        self._post(f"/cancel/{task_id}", {})
 
-        # 哈希密码
-        hashed_password = (
-            sha256(self._password.encode()).hexdigest() if self._password else None
-        )
-
-        # 确保输出目录存在
-        os.makedirs(self._output_dir, exist_ok=True)
-
-        # 获取内容并构建文件列表
-        # 所有文件直接下载到 output_dir，不保留目录结构
-        if not self._fetch_and_build(self._output_dir, content_id, hashed_password):
-            return None
-
-        if self._stop_event.is_set():
-            return None
-
-        if not self._files_info:
-            return None
-
-        # 多线程下载
-        downloaded_files: list[str] = []
-        lock = __import__("threading").Lock()
-
-        def _download_one(info: dict) -> None:
-            if self._stop_event.is_set():
-                return
-            result = self._download_file(info)
-            if result:
-                with lock:
-                    downloaded_files.append(result)
-
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [
-                executor.submit(_download_one, info)
-                for info in self._files_info.values()
-            ]
-            for f in futures:
-                try:
-                    f.result()
-                except Exception:
-                    pass
-
-        return downloaded_files if downloaded_files else None
-
-    # -------------------------------------------------------------------------
-    # 内容解析与获取
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_content_id(url: str) -> str | None:
-        """从 GoFile URL 提取内容 ID。"""
-        if not url:
-            return None
-        candidate = url.strip()
-        match = re.search(r"gofile\.io/d/([^/?#\s]+)", candidate, flags=re.IGNORECASE)
-        if match:
-            return match.group(1)
-        # 支持直接传入 content id
-        if re.fullmatch(r"[A-Za-z0-9\-]+", candidate):
-            return candidate
-        return None
-
-    def _fetch_contents(
-        self, content_id: str, hashed_password: str | None = None
-    ) -> dict | None:
-        """
-        从 GoFile API 获取内容列表。
-
-        处理 token 窗口回退、rate-limit 退避、以及 error-notPremium 降级。
-        """
-        params = dict(CONTENTS_QUERY_PARAMS)
-        if hashed_password:
-            params["password"] = hashed_password
-
-        url = f"https://api.gofile.io/contents/{content_id}"
-        window_offsets = [0, -1]  # 当前窗口 → 上一个窗口
-
-        for attempt in range(MAX_RETRIES):
-            window_offset = window_offsets[min(attempt, len(window_offsets) - 1)]
-
-            try:
-                response = _api_request(
-                    "GET",
-                    url,
-                    headers=self._content_headers(window_offset),
-                    params=params,
-                    timeout=CONTENT_TIMEOUT,
-                )
-                data = response.json()
-            except requests.Timeout:
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(3)
-                    continue
-                _log_error(
-                    f"gofile: content fetch timeout for {content_id} "
-                    f"after {MAX_RETRIES} attempts"
-                )
-                return None
-            except Exception as e:
-                if _is_edge_block(e):
-                    _log_error(
-                        "gofile: GoFile API edge blocked the connection "
-                        f"(content fetch for {content_id}). "
-                        "Try setting GOFILE_PROXY or installing curl_cffi."
-                    )
-                    return None
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(1)
-                    continue
-                _log_error(
-                    f"gofile: content fetch failed for {content_id}: "
-                    f"{type(e).__name__}: {e}"
-                )
-                return None
-
-            status = data.get("status")
-
-            if status == "ok":
-                return data
-
-            if status == "error-rateLimit":
-                wait = 3 * (attempt + 1)
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(wait)
-                    continue
-                _log_error("gofile: rate limit persisted")
-                return None
-
-            if status == "error-notPremium":
-                # website token 被拒绝 → 尝试上一个窗口
-                if attempt == 0:
-                    continue
-                _log_error(
-                    "gofile: website token rejected (salt may have rotated). "
-                    "Set GOFILE_WT_SALT env var."
-                )
-                return None
-
-            if status == "error-notFound":
-                _log_error(f"gofile: content {content_id} not found")
-                return None
-
-            _log_error(f"gofile: API error: {data}")
-            return None
-
-        return None
-
-    def _fetch_and_build(
-        self,
-        parent_dir: str,
-        content_id: str,
-        hashed_password: str | None = None,
-        pathing_count: dict[str, int] | None = None,
-        file_index: count = count(start=0, step=1),
-    ) -> bool:
-        """
-        递归获取 GoFile 内容元数据并注册文件。
-
-        所有文件扁平化到 parent_dir（不创建子目录结构）。
-
-        Returns:
-            True 表示成功获取（即使没有文件），False 表示 API 获取失败。
-        """
-        data = self._fetch_contents(content_id, hashed_password)
-        if data is None:
-            self._notify_progress(
-                "error", "Failed to fetch content info", None, 0, None, 0
-            )
-            return False
-
-        content_data = data["data"]
-
-        # 检查密码状态
-        password_status = content_data.get("passwordStatus", "passwordOk")
-        if password_status != "passwordOk":
-            self._notify_progress(
-                "error", "Password required or incorrect", None, 0, None, 0
-            )
-            _log_error(f"gofile: password required or incorrect for {self._url}")
-            return False
-
-        if pathing_count is None:
-            pathing_count = {}
-
-        # 文件类型：直接注册
-        if content_data.get("type") != "folder":
-            filepath = self._resolve_collision(
-                pathing_count, parent_dir, content_data["name"]
-            )
-            self._files_info[str(next(file_index))] = {
-                "path": os.path.dirname(filepath),
-                "filename": os.path.basename(filepath),
-                "link": content_data["link"],
-            }
-            return True
-
-        # 文件夹类型：扁平化递归处理子内容
-        children = content_data.get("children") or content_data.get("contents") or {}
-        for child in children.values():
-            if self._stop_event.is_set():
-                return True
-            if child["type"] == "folder":
-                self._fetch_and_build(
-                    parent_dir,
-                    child["id"],
-                    hashed_password,
-                    pathing_count,
-                    file_index,
-                )
-            else:
-                filepath = self._resolve_collision(
-                    pathing_count, parent_dir, child["name"]
-                )
-                self._files_info[str(next(file_index))] = {
-                    "path": os.path.dirname(filepath),
-                    "filename": os.path.basename(filepath),
-                    "link": child["link"],
-                }
-
-        return True
-
-    # -------------------------------------------------------------------------
-    # 文件下载
-    # -------------------------------------------------------------------------
-
-    def _download_file(self, file_info: dict[str, str]) -> str | None:
-        """下载单个文件，支持断点续传。返回最终文件路径。"""
-        filepath = os.path.join(file_info["path"], file_info["filename"])
-        filename = file_info["filename"]
-
-        # 跳过已完成的文件
-        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-            self._notify_progress(
-                "completed",
-                filename,
-                os.path.getsize(filepath),
-                os.path.getsize(filepath),
-                0,
-                100,
-            )
-            return filepath
-
-        tmp_file = f"{filepath}.part"
-        url = file_info["link"]
-
-        for attempt in range(MAX_RETRIES):
-            if self._stop_event.is_set():
-                return None
-
-            headers = {
-                "Cookie": f"accountToken={self._account_token}",
-                "User-Agent": GOFILE_USER_AGENT,
-                "Referer": "https://gofile.io/",
-            }
-            part_size = 0
-            if os.path.isfile(tmp_file):
-                part_size = int(os.path.getsize(tmp_file))
-                headers["Range"] = f"bytes={part_size}-"
-
-            try:
-                response = _api_request(
-                    "GET", url, headers=headers, stream=True, timeout=TIMEOUT
-                )
-                if not response:
-                    continue
-
-                with response:
-                    status_code = response.status_code
-                    if not self._is_valid_status(status_code, part_size):
-                        if status_code in (403, 404, 405, 500):
-                            continue
-                        # 其他非预期状态码，也重试
-                        time.sleep(2)
-                        continue
-
-                    total_size = self._get_total_size(response.headers, part_size)
-                    if total_size is None:
-                        continue
-
-                    self._write_chunks(
-                        response, tmp_file, part_size, total_size, filename
-                    )
-                    self._finalize(tmp_file, filepath, total_size, filename)
-                    return filepath
-
-            except requests.Timeout:
-                if attempt < MAX_RETRIES - 1:
-                    continue
-                _log_error(f"gofile: download timeout for {filename} after all retries")
-            except Exception as e:
-                if _is_edge_block(e):
-                    _log_error(
-                        f"gofile: GoFile API edge blocked download of {filename}"
-                    )
-                    break
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2)
-                    continue
-                _log_error(
-                    f"gofile: download failed for {filename}: "
-                    f"{type(e).__name__}: {e}"
-                )
-
-        self._notify_progress("failed", filename, 0, None, 0, 0)
-        _log_error(
-            f"gofile: download failed after retries: "
-            f"{file_info.get('link', '?')} → {filename}"
-        )
-        return None
-
-    def _write_chunks(
-        self,
-        response: requests.Response,
-        tmp_file: str,
-        part_size: int,
-        total_size: int,
-        filename: str,
-    ) -> None:
-        """分块写入数据并报告进度。"""
-        start_time = time.perf_counter()
-        downloaded = part_size
-        last_report = 0.0
-
-        with open(tmp_file, "ab") as f:
-            for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
-                if self._stop_event.is_set():
-                    return
-                if not chunk:
-                    continue
-
-                f.write(chunk)
-                downloaded += len(chunk)
-
-                now = time.perf_counter()
-                if now - last_report >= 0.5 or downloaded >= total_size:
-                    elapsed = now - start_time
-                    speed = (downloaded - part_size) / elapsed if elapsed > 0 else 0
-                    percent = downloaded / total_size * 100 if total_size else 0
-                    self._notify_progress(
-                        "downloading", filename, downloaded, total_size, speed, percent
-                    )
-                    last_report = now
-
-    @staticmethod
-    def _finalize(
-        tmp_file: str, filepath: str, total_size: int, _filename: str
-    ) -> None:
-        """校验并完成下载。"""
-        if os.path.getsize(tmp_file) == total_size:
-            shutil.move(tmp_file, filepath)
-
-    @staticmethod
-    def _is_valid_status(status_code: int, part_size: int) -> bool:
-        if status_code in (403, 404, 405, 500):
-            return False
-        if part_size == 0:
-            return status_code in (200, 206)
-        return status_code == 206
-
-    @staticmethod
-    def _get_total_size(
-        headers: CaseInsensitiveDict[str], part_size: int
-    ) -> int | None:
-        if part_size == 0:
-            cl = headers.get("Content-Length")
-            return int(cl) if cl else None
-        cr = headers.get("Content-Range")
-        if cr:
-            return int(cr.split("/")[-1])
-        return None
-
-    @staticmethod
-    def _resolve_collision(
-        pathing_count: dict[str, int],
-        parent_dir: str,
-        child_name: str,
-        is_dir: bool = False,
-    ) -> str:
-        """解决命名冲突：同名文件添加 (1), (2) 后缀。"""
-        filepath = os.path.join(parent_dir, child_name)
-        count_val = pathing_count.get(filepath, 0)
-        pathing_count[filepath] = count_val + 1
-
-        if count_val == 0:
-            return filepath
-
-        if is_dir:
-            return f"{filepath}({count_val})"
-
-        root, ext = os.path.splitext(filepath)
-        return f"{root}({count_val}){ext}"
-
-    # -------------------------------------------------------------------------
-    # 进度通知
-    # -------------------------------------------------------------------------
-
-    def _notify_progress(
-        self,
-        status: str,
-        filename: str,
-        downloaded: int,
-        total: int | None,
-        speed: float,
-        percent: float,
-    ) -> None:
-        """通过回调通知进度。"""
-        if self._progress_callback:
-            self._progress_callback(
-                {
-                    "status": status,
-                    "filename": filename,
-                    "downloaded": downloaded,
-                    "total": total,
-                    "speed": speed,
-                    "percent": percent,
-                }
-            )
+    def remove(self, task_id: str) -> None:
+        self._post(f"/remove/{task_id}", {})
 
 
 # =============================================================================
-# 公开 API
+# 辅助
 # =============================================================================
+
+
+def _host_path(container_path: str) -> str:
+    """把容器内文件路径（/data/...）映射为宿主机路径（HOST_DIR/...）。"""
+    cp = container_path.replace("\\", "/")
+    prefix = REMOTE_DIR.rstrip("/") + "/"
+    rel = cp[len(prefix):] if cp.startswith(prefix) else cp.lstrip("/")
+    return os.path.join(HOST_DIR, os.path.normpath(rel))
+
+
+def _dedup_target(path: str, counts: dict[str, int]) -> str:
+    """同名目标加 (1)(2) 后缀，行为与旧版一致。"""
+    n = counts.get(path, 0)
+    counts[path] = n + 1
+    if n == 0:
+        return path
+    stem, ext = os.path.splitext(os.path.basename(path))
+    return os.path.join(os.path.dirname(path), f"{stem}({n}){ext}")
+
+
+def _notify(
+    cb: Callable[[dict], None] | None,
+    status: str,
+    filename: str,
+    downloaded: int = 0,
+    total: int | None = None,
+    speed: float = 0.0,
+    percent: float = 0.0,
+) -> None:
+    if cb:
+        cb(
+            {
+                "status": status,
+                "filename": filename,
+                "downloaded": downloaded,
+                "total": total,
+                "speed": speed,
+                "percent": percent,
+            }
+        )
+
+
+def _emit_progress(task: dict, cb: Callable[[dict], None] | None) -> None:
+    """把远程任务字段映射成旧版进度回调格式。"""
+    files = task.get("files") or []
+    total = sum(f.get("size") or 0 for f in files)
+    done = sum(
+        (f.get("size") or 0) * max(f.get("progress") or 0, 0) / 100.0
+        for f in files
+    )
+    percent = (done / total * 100.0) if total else float(task.get("overall_progress") or 0)
+    _notify(
+        cb,
+        "downloading",
+        task.get("name") or task.get("current_folder") or task.get("url") or "",
+        downloaded=int(done),
+        total=int(total) if total else None,
+        speed=float(task.get("download_speed") or 0),
+        percent=min(100.0, percent),
+    )
+
+
+# =============================================================================
+# 主流程
+# =============================================================================
+
+
+def _copy_back(task_id: str, task: dict, output_dir: str,
+               cb: Callable[[dict], None] | None,
+               stop_event: Event) -> list[str] | None:
+    """
+    远程任务完成后：把 HOST_DIR 下本次任务的文件拍平复制到 output_dir。
+
+    返回复制好的本地文件路径列表；无文件可复制返回 None。
+    """
+    files = [
+        f for f in (task.get("files") or [])
+        if f.get("file") and (f.get("progress") or 0) >= 100
+    ]
+    if not files:
+        _log_error(f"gofile: 任务 {task_id} 完成但没有已完成文件记录（分享可能为空）")
+        return None
+
+    dst_root = os.path.realpath(output_dir)
+    src_root = os.path.realpath(HOST_DIR)
+    name = task.get("name") or task_id
+
+    # output_dir 就是 gofile-dl 的宿主目录：结果已在用户指定位置，无需再拷。
+    if src_root == dst_root:
+        paths = [_host_path(f["file"]) for f in files]
+        return paths if all(os.path.isfile(p) for p in paths) else None
+
+    _notify(cb, "downloading", f"正在复制回本地：{name}", percent=99.0)
+    os.makedirs(dst_root, exist_ok=True)
+
+    counts: dict[str, int] = {}
+    copied: list[str] = []
+    for f in files:
+        if stop_event.is_set():
+            break
+        src = _host_path(f["file"])
+        if not os.path.isfile(src):
+            _log_error(f"gofile: 宿主文件不存在，跳过：{src}")
+            continue
+        dest = _dedup_target(os.path.join(dst_root, os.path.basename(src)), counts)
+        shutil.copy2(src, dest)
+        copied.append(dest)
+
+    if stop_event.is_set() or not copied:
+        return None
+
+    _notify(cb, "completed", name, percent=100.0)
+    return copied
 
 
 def download(
@@ -736,24 +240,130 @@ def download(
     stop_event: Event | None = None,
 ) -> list[str] | None:
     """
-    从 GoFile 下载文件。
+    从 GoFile 下载文件（委托给 gofile-dl 服务）。
 
     参数:
         url:               GoFile 链接 (如 https://gofile.io/d/abc123)
-        output_dir:        保存目录
+        output_dir:        本地保存目录（拍平后文件落在这里）
         password:          可选的访问密码
         progress_callback: 进度回调，接收 dict:
                            {status, filename, downloaded, total, speed, percent}
-        stop_event:        用于外部取消的 Event
+        stop_event:        用于取消的 Event（置位时取消远程任务）
 
     返回:
-        成功时返回下载的文件路径列表，失败返回 None
+        成功返回下载（并拷回本地）的文件路径列表，失败抛 RuntimeError 或返回 None（被取消时）。
     """
-    downloader = GoFileDownloader(
-        url=url,
-        output_dir=output_dir,
-        password=password,
-        progress_callback=progress_callback,
-        stop_event=stop_event,
+    stop_event = stop_event or Event()
+    cb = progress_callback
+
+    try:
+        api = _GofileDlApi()
+    except requests.HTTPError as e:
+        raise RuntimeError(f"gofile-dl 连接/鉴权失败（{BASE_URL}）：HTTP {e.response.status_code}") from e
+    except requests.RequestException as e:
+        raise RuntimeError(f"无法连接 gofile-dl（{BASE_URL}）：{e}") from e
+
+    try:
+        task_id = api.start(url, password)
+    except requests.RequestException as e:
+        raise RuntimeError(f"gofile-dl 提交任务失败：{e}") from e
+
+    _notify(cb, "downloading", url.split("/")[-1], percent=0.0)
+
+    missing = 0
+    stall = 0
+    last_poll = 0.0
+
+    try:
+        while not stop_event.is_set():
+            if time.monotonic() - last_poll < POLL_SECONDS:
+                time.sleep(0.2)
+                continue
+            last_poll = time.monotonic()
+
+            try:
+                tasks = api.tasks()
+            except requests.RequestException as e:
+                stall += 1
+                if stall >= 3:
+                    raise RuntimeError(f"gofile-dl 轮询失败（连续 {stall} 次）：{e}") from e
+                continue
+            stall = 0
+
+            task = tasks.get(task_id)
+            if task is None:
+                missing += 1
+                if missing >= 30:  # ~1 分钟仍看不到任务，多半服务重启把内存任务清掉了
+                    raise RuntimeError(f"gofile-dl 找不到任务 {task_id}（服务可能已重启）")
+                continue
+            missing = 0
+
+            status = task.get("status")
+            if status == "completed":
+                result = _copy_back(task_id, task, output_dir, cb, stop_event)
+                if result is None:
+                    if stop_event.is_set():  # 拷贝途中被取消
+                        return None
+                    raise RuntimeError(f"gofile-dl 任务完成但未复制到任何文件（{task_id}）")
+                try:  # 拷完后把远程任务从 gofile-dl 列表清掉（不删文件）
+                    api.remove(task_id)
+                except Exception:
+                    pass
+                return result
+
+            if status == "error":
+                emsg = task.get("error_message") or "未知错误"
+                raise RuntimeError(f"gofile-dl 任务失败：{emsg}")
+
+            if status == "cancelled":
+                _notify(cb, "failed", task.get("name") or task_id)
+                return None
+
+            _emit_progress(task, cb)
+
+        # 被外部 stop 了：取消远程任务，返回 None 让上层标为 waiting
+        try:
+            api.cancel(task_id)
+        except Exception:
+            pass
+        return None
+
+    except RuntimeError:
+        raise
+    except Exception as e:  # 轮询循环里的意外异常，按任务失败处理
+        _log_error(f"gofile: {url} 任务异常：{type(e).__name__}: {e}")
+        raise RuntimeError(f"gofile 任务异常：{e}") from e
+
+
+# =============================================================================
+# 自检（无网络）
+# =============================================================================
+
+
+def _selfcheck() -> None:
+    """校验宿主路径映射与同名去重逻辑。"""
+    global REMOTE_DIR, HOST_DIR
+    REMOTE_DIR, HOST_DIR = "/data", "/opt/gofile-dl/downloads"
+    assert _host_path("/data/MyShare/a.zip") == os.path.join(
+        "/opt/gofile-dl/downloads", "MyShare", "a.zip"
     )
-    return downloader.run()
+    assert _host_path("/data/file.zip") == os.path.join(
+        "/opt/gofile-dl/downloads", "file.zip"
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src_dir = os.path.join(tmp, "src")
+        dst_dir = os.path.join(tmp, "dst")
+        os.makedirs(src_dir)
+        with open(os.path.join(src_dir, "a.zip"), "w") as f:
+            f.write("x")
+        counts: dict[str, int] = {}
+        p1 = _dedup_target(os.path.join(dst_dir, "a.zip"), counts)
+        p2 = _dedup_target(os.path.join(dst_dir, "a.zip"), counts)
+        assert p1 == os.path.join(dst_dir, "a.zip")
+        assert p2 == os.path.join(dst_dir, "a(1).zip")
+    print("gofile_downloader selfcheck OK")
+
+
+if __name__ == "__main__":
+    _selfcheck()

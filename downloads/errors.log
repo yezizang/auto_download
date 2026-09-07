@@ -1,0 +1,16 @@
+[2026-08-28T03:26:35.660694Z] gofile: account creation failed: ProxyError: HTTPSConnectionPool(host='api.gofile.io', port=443): Max retries exceeded with url: /accounts (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='127.0.0.1', port=7891): Failed to establish a new connection: [WinError 10061] 由于目标计算机积极拒绝，无法连接。")))
+
+[2026-08-28T03:26:35.664829Z] gofile: no account token — account creation failed (using proxy http://127.0.0.1:7891)
+
+[2026-08-28T03:26:35.666865Z] [gofile.io] download returned empty: https://gofile.io/d/Em3Hw6
+
+[2026-08-28T05:12:41.744213Z] gofile: account creation failed: ProxyError: HTTPSConnectionPool(host='api.gofile.io', port=443): Max retries exceeded with url: /accounts (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='127.0.0.1', port=7891): Failed to establish a new connection: [WinError 10061] 由于目标计算机积极拒绝，无法连接。")))
+
+[2026-08-28T05:12:41.756394Z] gofile: no account token — account creation failed (using proxy http://127.0.0.1:7891)
+
+[2026-08-28T05:12:41.758454Z] [gofile.io] download returned empty: https://gofile.io/d/pjUAXn
+
+[2026-08-28T05:14:28.999060Z] gofile: rate limit persisted
+
+[2026-08-28T05:14:29.003273Z] [gofile.io] download returned empty: https://gofile.io/d/pjUAXn
+

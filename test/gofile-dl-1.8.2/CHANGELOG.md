@@ -1,0 +1,105 @@
+# Changelog
+
+## [1.8.2](https://github.com/martadams89/gofile-dl/compare/v1.8.1...v1.8.2) (2026-09-02)
+
+### Bug Fixes
+
+- **ci:** stop ruff and hadolint failing the Lint workflow on every push ([#183](https://github.com/martadams89/gofile-dl/issues/183)) ([a5caee8](https://github.com/martadams89/gofile-dl/commit/a5caee86bcf9fcc1dc444b4dd3829d9906607b6d))
+
+## [1.8.1](https://github.com/martadams89/gofile-dl/compare/v1.8.0...v1.8.1) (2026-07-07)
+
+### Bug Fixes
+
+- **ci:** remove colliding concurrency group; fix docs-skip condition for PRs ([#151](https://github.com/martadams89/gofile-dl/issues/151)) ([7814a3e](https://github.com/martadams89/gofile-dl/commit/7814a3e4d2bf078974e785bda404eb1f4044fd5a))
+
+## [1.8.0](https://github.com/martadams89/gofile-dl/compare/v1.7.1...v1.8.0) (2026-07-03)
+
+### Features
+
+- update readme ([8f2a9c8](https://github.com/martadams89/gofile-dl/commit/8f2a9c86cf78325c6255c5c0e2099f244ca614a8))
+- update readme ([0b24944](https://github.com/martadams89/gofile-dl/commit/0b24944e6966ed955b63d0a529b7f0a88b83463d))
+
+## [1.7.1](https://github.com/martadams89/gofile-dl/compare/v1.7.0...v1.7.1) (2026-03-19)
+
+### Bug Fixes
+
+- Improve timeout handling and retry logic for API requests ([c16666c](https://github.com/martadams89/gofile-dl/commit/c16666c660bedf1b98c63cd395a8c52a6ef8ead2))
+- Improve timeout handling and retry logic for API requests ([1b94def](https://github.com/martadams89/gofile-dl/commit/1b94def8fcece24f0ef319a9690a4bc360ea4009))
+
+## [1.7.0](https://github.com/martadams89/gofile-dl/compare/v1.6.1...v1.7.0) (2026-03-19)
+
+### Features
+
+- Implement GoFile premium account token support and web fallback for error-notPremium ([06b9f30](https://github.com/martadams89/gofile-dl/commit/06b9f3054bdd60024fc07ed7fe82b6d18373b28b))
+
+### Bug Fixes
+
+- Implement GoFile premium account token support and web fallback ([1bb2b0a](https://github.com/martadams89/gofile-dl/commit/1bb2b0a566239797010546fb40f224de47be5c1e))
+
+## [1.6.1](https://github.com/martadams89/gofile-dl/compare/v1.6.0...v1.6.1) (2026-01-18)
+
+### Bug Fixes
+
+- fix duplicate lines ([4074cfe](https://github.com/martadams89/gofile-dl/commit/4074cfeb1794eee264c18c4a885a28dbbf732b81))
+- fix duplicate lines ([391e8c1](https://github.com/martadams89/gofile-dl/commit/391e8c1368494334bdcae3e951316be3d132e611))
+
+## [1.6.0](https://github.com/martadams89/gofile-dl/compare/v1.5.0...v1.6.0) (2026-01-18)
+
+### Features
+
+- update changelog for version 1.5.0 and add incremental sync mode with emoji stripping options ([ae69bdb](https://github.com/martadams89/gofile-dl/commit/ae69bdbd387c5c66e2755989c3ee4696c1b7f570))
+
+### Bug Fixes
+
+- clean up file display logic by removing redundant code and improving readability ([0668f06](https://github.com/martadams89/gofile-dl/commit/0668f069b25221eb3eb795882d3112258e187cb8))
+- enhance task display with hierarchical file structure and scroll position restoration ([64b3af1](https://github.com/martadams89/gofile-dl/commit/64b3af174e426cf753c287e6d86f496c3a9258b1))
+- remove duplicate keys in health check response ([f59e5f0](https://github.com/martadams89/gofile-dl/commit/f59e5f05b259f95960fb535ec2383aea7e0dc2c9))
+- remove redundant parameters from download_task function call ([52251ff](https://github.com/martadams89/gofile-dl/commit/52251ffb33bc82837f8c95811e30a903dd928f04))
+- remove redundant parameters from start_download function ([f15fb15](https://github.com/martadams89/gofile-dl/commit/f15fb153cff852919693e13ceea3a7aa2a752f1f))
+- update download task progress display to include current folder and download speed ([c7c87fe](https://github.com/martadams89/gofile-dl/commit/c7c87fe496226eebc383ca62e9cec3190c3ea511))
+
+## [1.5.0](https://github.com/martadams89/gofile-dl/compare/v1.4.0...v1.5.0) (2026-01-17)
+
+### Features
+
+- add incremental sync mode and emoji stripping options; enhance error handling and directory permissions ([#105](https://github.com/martadams89/gofile-dl/issues/105)) ([55e868e](https://github.com/martadams89/gofile-dl/commit/55e868ee0228e2b54aa9ee8c6823ed7f183aae23))
+
+## [1.4.0](https://github.com/martadams89/gofile-dl/compare/v1.3.0...v1.4.0) (2026-01-17)
+
+### Features
+
+- update gofile-dl to latest api requirements and add in tests. ([#103](https://github.com/martadams89/gofile-dl/issues/103)) ([3c9c520](https://github.com/martadams89/gofile-dl/commit/3c9c5201f1baf430ac13c244eff49b8cf8992a94))
+
+## [1.3.0](https://github.com/martadams89/gofile-dl/compare/v1.2.0...v1.3.0) (2025-04-06)
+
+### Features
+
+- implement sessionStorage for saving and loading last download path ([9a1f1c7](https://github.com/martadams89/gofile-dl/commit/9a1f1c7eaeec55d11c5229e034930bf0a5f98350))
+
+### Bug Fixes
+
+- Implement sessionStorage for last download path ([646c20e](https://github.com/martadams89/gofile-dl/commit/646c20e3c96e4defe497fe06315fcb6d6e06f59a))
+- wrong filename ([f567527](https://github.com/martadams89/gofile-dl/commit/f567527d9c479f0db3984ddcc6fd701df1c04b04))
+
+## [1.2.0](https://github.com/martadams89/gofile-dl/compare/v1.1.0...v1.2.0) (2025-03-15)
+
+### Features
+
+- implement sessionStorage for saving and loading last download path ([3d7366f](https://github.com/martadams89/gofile-dl/commit/3d7366f1b0e4fe8f51766af3468711834efd7699))
+
+## [1.1.0](https://github.com/martadams89/gofile-dl/compare/v1.0.0...v1.1.0) (2025-03-05)
+
+### Features
+
+- :sparkles: add development requirements, update Dockerfile, and enhance README for improved setup and configuration ([4d8143d](https://github.com/martadams89/gofile-dl/commit/4d8143d66ee0c9f5744f1705b75d3f21d3ad9271))
+- :sparkles: add initial configuration files, Docker support, and error handling ([db24f39](https://github.com/martadams89/gofile-dl/commit/db24f3979d56fe3c25abc5f08b3168b85b29c6f2))
+
+### Bug Fixes
+
+- :sparkles: update requirements.txt to include core dependencies, Flask extensions, configuration tools, system monitoring, and security packages ([e4e74e6](https://github.com/martadams89/gofile-dl/commit/e4e74e6257e4bca5527cd5f395435e853afbc925))
+
+## 1.0.0 (2025-03-04)
+
+### Features
+
+- :rocket: add initial project structure with Docker support and CI workflows ([3f72fea](https://github.com/martadams89/gofile-dl/commit/3f72fea3aa7c7f4f6af1ec28abc272bf1cc3291d))

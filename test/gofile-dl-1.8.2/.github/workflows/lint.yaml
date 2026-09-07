@@ -1,0 +1,56 @@
+# MegaLinter GitHub Action configuration file
+# More info at https://megalinter.io
+---
+name: Lint
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches:
+      - "*"
+    paths:
+      - README.md
+      - CHANGELOG.md
+      - version.txt
+      - ".github/workflows/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      statuses: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      # MegaLinter (python flavor) bundles pylint, flake8, black, isort, bandit
+      # and mypy in its own container, so there's no need to set up Python or
+      # install linters on the runner. The test suite runs in test.yaml and the
+      # image is built/validated in the reusable build workflow - neither is
+      # duplicated here.
+      - name: MegaLinter
+        uses: oxsecurity/megalinter/flavors/python@15e5b45552097e318c93de385779ce3b1084052c # v10
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_ALL_CODEBASE: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' && contains(fromJSON('["refs/heads/main", "refs/heads/master"]'), github.ref) }}
+          # All other configuration comes from .mega-linter.yaml
+
+      - name: Upload MegaLinter artifacts
+        if: ${{ success() || failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: MegaLinter reports
+          path: |
+            megalinter-reports
+            mega-linter.log
