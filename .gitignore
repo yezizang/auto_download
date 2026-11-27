@@ -4,3 +4,6 @@ __pycache__/
 .part
 *.part
 .env
+cloud_mail_ru.py
+combo.xlsx
+test/gofile-downloader/
