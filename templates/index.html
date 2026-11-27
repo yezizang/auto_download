@@ -28,9 +28,21 @@
     line-height: 1.6;
   }
 
+  .conn-banner {
+    display: none;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #3d3520;
+    color: var(--yellow);
+    text-align: center;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+  }
+  .conn-banner.show { display: block; }
+
   .container { max-width: 1400px; margin: 0 auto; padding: 24px 28px; }
 
-  /* ---- 头部 ---- */
   header { text-align: center; margin-bottom: 28px; }
   header h1 {
     font-size: 2rem; font-weight: 700;
@@ -40,62 +52,71 @@
   }
   header p { color: var(--text-dim); font-size: 0.95rem; margin-top: 4px; }
 
-  /* ---- 卡片 ---- */
   .card {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;
   }
   .card h2 { font-size: 1.1rem; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .hint { color: var(--text-dim); font-size: 0.82rem; margin: -6px 0 12px; }
 
-  /* ---- 表单 ---- */
   .form-row { display: flex; gap: 16px; margin-bottom: 14px; }
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-group label { font-size: 0.85rem; color: var(--text-dim); font-weight: 500; }
   .flex-1 { flex: 1; }
 
-  textarea, input[type="text"] {
+  textarea, input[type="text"], input[type="password"], select {
     background: var(--bg); border: 1px solid var(--border);
     border-radius: 8px; color: var(--text); padding: 10px 14px;
     font-size: 0.9rem; font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-    resize: vertical; transition: border-color 0.2s;
+    resize: vertical; transition: border-color 0.2s; width: 100%;
   }
-  textarea:focus, input:focus {
+  textarea:focus, input:focus, select:focus {
     outline: none; border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(91, 154, 255, 0.15);
   }
   textarea { min-height: 120px; }
+  select { font-family: inherit; }
 
-  /* ---- 按钮 ---- */
+  .save-preview { color: var(--cyan); font-size: 0.85rem; margin: -6px 0 14px; word-break: break-all; }
+
   .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 10px 20px; border-radius: 8px; font-size: 0.9rem;
     font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+    text-decoration: none;
   }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover:not(:disabled) { background: #7ab4ff; transform: translateY(-1px); }
-  .btn-success { background: var(--green); color: #fff; }
-  .btn-success:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-primary:hover:not(:disabled) { background: #7ab4ff; }
   .btn-danger { background: var(--red); color: #fff; }
-  .btn-danger:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-danger:hover:not(:disabled) { filter: brightness(1.15); }
   .btn-ghost {
     background: transparent; color: var(--text-dim); border: 1px solid var(--border);
   }
-  .btn-ghost:hover:not(:disabled) { background: var(--surface); color: var(--text); }
-  .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+  .btn-ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
 
-  /* ---- 摘要 ---- */
-  .summary { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; }
+  .submit-result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: 0.9rem;
+  }
+
+  .summary { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0; }
   .summary-item {
     background: var(--bg); border-radius: 8px; padding: 12px 20px;
     text-align: center; min-width: 90px;
   }
   .summary-item .num { font-size: 1.6rem; font-weight: 700; }
   .summary-item .lbl { font-size: 0.8rem; color: var(--text-dim); }
-  .num.green { color: var(--green); } .num.red { color: var(--red); } .num.accent { color: var(--accent); }
+  .num.green { color: var(--green); }
+  .num.red { color: var(--red); }
+  .num.accent { color: var(--accent); }
+  .num.yellow { color: var(--yellow); }
 
-  /* ---- 状态栏 ---- */
   .status-bar {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 16px; background: var(--bg); border-radius: 8px;
@@ -106,285 +127,498 @@
   .status-dot.active { background: var(--green); animation: pulse 1.5s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-  /* ---- 表格 ---- */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: 0.8rem;
+  }
+  .chip.on { color: var(--text); border-color: var(--accent); background: #1a3050; }
+  .check { color: var(--text-dim); font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+  .grow { flex: 1; min-width: 180px; }
+
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 0.88rem; table-layout: fixed; }
   thead th {
     text-align: left; padding: 10px 12px; color: var(--text-dim);
-    font-weight: 600; font-size: 0.8rem; text-transform: uppercase;
-    letter-spacing: 0.5px; border-bottom: 2px solid var(--border); white-space: nowrap;
+    font-weight: 600; font-size: 0.8rem; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border); white-space: nowrap;
   }
-  tbody td { padding: 10px 12px; border-bottom: 1px solid #1e2130; vertical-align: middle; }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid #1e2130; vertical-align: top; }
   tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   .badge {
     display: inline-block; padding: 3px 10px; border-radius: 20px;
     font-size: 0.75rem; font-weight: 600; white-space: nowrap;
   }
-  .badge-waiting { background: #2a2d3a; color: var(--text-dim); }
+  .badge-waiting, .badge-stopped { background: #2a2d3a; color: var(--text-dim); }
   .badge-connecting { background: #3d3520; color: var(--yellow); }
   .badge-downloading { background: #1a3050; color: var(--accent); }
   .badge-completed { background: #1a3020; color: var(--green); }
   .badge-failed { background: #3d1a1a; color: var(--red); }
 
-  /* ---- 文件名 + URL 列 ---- */
   .task-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .task-filename {
     font-weight: 600; font-size: 0.9rem;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .task-url {
+  .task-url, .task-path {
     font-size: 0.78rem; color: var(--text-dim);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
   }
+  .path-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .path-row .task-path { flex: 1; }
 
-  /* ---- 进度列 ---- */
-  .progress-cell { min-width: 130px; }
   .progress-bar-wrap {
     height: 6px; background: var(--bg); border-radius: 3px;
     overflow: hidden; margin-bottom: 4px;
   }
-  .progress-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .progress-bar-fill { height: 100%; border-radius: 3px; }
   .progress-text { font-size: 0.75rem; color: var(--text-dim); }
 
-  /* 异常信息：单行截断 + hover 显示完整 */
-  .error-text {
-    display: block; max-width: 100%; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-    color: var(--red); font-size: 0.82rem; cursor: help;
+  .error-box {
+    white-space: pre-wrap; word-break: break-word; user-select: text;
+    color: var(--red); font-size: 0.82rem; background: #2a1515;
+    border-radius: 6px; padding: 6px 8px;
   }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-  /* ---- 不支持列表 ---- */
-  .unsupported-list { max-height: 120px; overflow-y: auto; margin-top: 8px; }
+  .unsupported-list { max-height: 180px; overflow-y: auto; margin-top: 8px; }
   .unsupported-list .item {
-    font-size: 0.82rem; color: var(--red); padding: 3px 0; word-break: break-all;
+    font-size: 0.82rem; color: var(--red); padding: 6px 0;
+    border-bottom: 1px solid #2a1515; word-break: break-all; user-select: text;
   }
 
-  /* ---- 空状态 ---- */
-  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-dim); }
-  .empty-state .icon { font-size: 2.5rem; margin-bottom: 10px; }
+  .cards { display: none; }
+  .task-card, .file-row {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; background: var(--bg); margin-bottom: 10px;
+  }
+  .file-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+  .file-row .meta { min-width: 0; flex: 1; }
+  .muted { color: var(--text-dim); font-size: 0.8rem; }
 
-  /* ---- 响应式 ---- */
+  .empty-state { text-align: center; padding: 28px 12px; color: var(--text-dim); }
+
   @media (max-width: 800px) {
+    .container { padding: 16px; }
     .form-row { flex-direction: column; }
-    .summary { justify-content: center; }
-    .task-url { display: none; }
+    .table-wrap { display: none; }
+    .cards { display: block; }
+    .file-row { flex-direction: column; align-items: stretch; }
+    header h1 { font-size: 1.5rem; }
   }
 </style>
 </head>
 <body>
+<div id="conn-banner" class="conn-banner">实时连接已断开，正在重试…</div>
 <div class="container">
 
   <header>
-    <h1>📦 自动化下载工具</h1>
-    <p>支持 gofile.io · upload.ee · pixeldrain.com · mediafire.com · transfer.it · anonfilesnew.com · biteblob.com</p>
+    <h1>自动化下载工具</h1>
+    <p>支持 gofile.io · upload.ee · pixeldrain.com · mediafire.com · transfer.it · anonfilesnew.com · biteblob.com · cloud.mail.ru</p>
   </header>
 
-  <!-- 输入卡片 -->
-  <div class="card" id="input-card">
-    <h2>📥 提交下载任务</h2>
-    <div class="form-row">
-      <div class="form-group flex-1">
-        <label for="urls">下载链接（每行一个 URL，自动去重）</label>
-        <textarea id="urls" placeholder="每行一个 URL，自动去重&#10;https://gofile.io/d/abc123&#10;https://upload.ee/files/19999/file.zip.html&#10;https://pixeldrain.com/u/xyz789&#10;https://www.mediafire.com/file/abc123/file.zip/file&#10;https://transfer.it/t/abc123&#10;https://anonfilesnew.com/abc123/file.zip&#10;https://biteblob.com/abc123/file.zip"></textarea>
-      </div>
+  <div class="card">
+    <h2>提交下载</h2>
+    <p class="hint">可以直接粘贴一段说明。程序会找出其中的链接，跳过空行和重复项，提交后这一批马上开始。</p>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label for="urls">下载链接</label>
+      <textarea id="urls" placeholder="可以混在说明文字里，例如：&#10;请下载 https://gofile.io/d/abc123&#10;https://upload.ee/files/19999/file.zip.html&#10;https://pixeldrain.com/u/xyz789&#10;https://www.mediafire.com/file/abc123/file.zip/file&#10;https://transfer.it/t/abc123&#10;https://anonfilesnew.com/abc123/file.zip&#10;https://biteblob.com/abc123/file.zip&#10;https://cloud.mail.ru/public/xxxx/yyyy"></textarea>
     </div>
     <div class="form-row">
       <div class="form-group flex-1">
-        <label for="outdir">保存目录</label>
-        <input type="text" id="outdir" placeholder="留空则使用当前目录下的 downloads 文件夹" />
+        <label for="subdir">子目录（可选，会记住上次填写的）</label>
+        <input type="text" id="subdir" placeholder="例如 专辑名。留空则只按日期分目录" autocomplete="off" />
+      </div>
+      <div class="form-group flex-1">
+        <label for="gofile-password">gofile 访问密码（可选，不保存；重试前再填一次）</label>
+        <input type="password" id="gofile-password" placeholder="没有密码就留空" autocomplete="off" />
       </div>
     </div>
+    <div class="save-preview">保存位置：<span id="save-preview">{{ today_dir }}</span></div>
     <div class="btn-row">
-      <button class="btn btn-primary" id="btn-submit" onclick="submitUrls()">📋 提交 URL</button>
-      <button class="btn btn-success" id="btn-start" onclick="startDownload()" disabled>▶ 开始下载</button>
-      <button class="btn btn-danger" id="btn-stop" onclick="stopDownload()" disabled>⏹ 停止</button>
-      <button class="btn btn-ghost" id="btn-retry" onclick="retryFailed()" disabled>🔄 重试失败</button>
-      <button class="btn btn-ghost btn-sm" id="btn-clear" onclick="clearCompleted()" style="margin-left:auto;">🧹 清空已完成</button>
-      <span style="color:var(--text-dim); font-size:0.85rem;">线程: 5</span>
+      <button class="btn btn-primary" id="btn-submit" type="button">提交并开始</button>
+      <span id="worker-label" style="color:var(--text-dim); font-size:0.85rem;">线程: {{ workers }}</span>
     </div>
+    <div id="submit-result" class="submit-result" hidden></div>
   </div>
 
-  <!-- 摘要 -->
-  <div class="card" id="summary-card" style="display:none;">
-    <h2>📊 解析结果</h2>
-    <div class="summary">
-      <div class="summary-item"><div class="num accent" id="sum-total">0</div><div class="lbl">总链接数</div></div>
-      <div class="summary-item"><div class="num green" id="sum-valid">0</div><div class="lbl">可自动下载</div></div>
-      <div class="summary-item"><div class="num red" id="sum-unsupported">0</div><div class="lbl">不支持</div></div>
-    </div>
-    <div class="unsupported-list" id="unsupported-list" style="display:none;"></div>
-  </div>
-
-  <!-- 任务列表 -->
   <div class="card" id="progress-card" style="display:none;">
-    <h2>⚡ 下载任务列表</h2>
+    <h2>下载任务</h2>
+    <p class="hint">停止、继续、重试和清空只作用于下面选中的批次。重启后未完成的任务会留在这里，要点继续才会接着下载。</p>
     <div class="status-bar">
       <div class="status-dot idle" id="status-dot"></div>
       <span id="status-text">就绪</span>
     </div>
+    <div class="summary">
+      <div class="summary-item"><div class="num accent" id="sum-active">0</div><div class="lbl">进行中</div></div>
+      <div class="summary-item"><div class="num green" id="sum-done">0</div><div class="lbl">完成</div></div>
+      <div class="summary-item"><div class="num red" id="sum-fail">0</div><div class="lbl">失败</div></div>
+      <div class="summary-item"><div class="num yellow" id="sum-unsupported">0</div><div class="lbl">不支持</div></div>
+    </div>
+    <div class="toolbar">
+      <select id="batch" class="grow" aria-label="当前操作的批次"></select>
+      <label class="check"><input type="checkbox" id="only-mine" /> 只看我提交的</label>
+    </div>
+    <div class="toolbar">
+      <div class="chips" id="filters">
+        <button type="button" class="chip on" data-filter="all">全部</button>
+        <button type="button" class="chip" data-filter="active">进行中</button>
+        <button type="button" class="chip" data-filter="failed">失败</button>
+        <button type="button" class="chip" data-filter="done">完成</button>
+      </div>
+      <input type="text" id="task-q" class="grow" placeholder="按文件名、链接或错误搜索" autocomplete="off" />
+    </div>
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button class="btn btn-ghost btn-sm" id="btn-resume" type="button">继续本批</button>
+      <button class="btn btn-danger btn-sm" id="btn-stop" type="button">停止本批</button>
+      <button class="btn btn-ghost btn-sm" id="btn-retry" type="button">重试本批失败</button>
+      <button class="btn btn-ghost btn-sm" id="btn-clear" type="button">清空本批已完成</button>
+    </div>
+    <div class="unsupported-list" id="unsupported-list" style="display:none;"></div>
     <div class="table-wrap">
       <table>
         <colgroup>
-          <col style="width:38px">
+          <col style="width:48px">
           <col style="width:auto">
-          <col style="width:78px">
+          <col style="width:84px">
+          <col style="width:160px">
+          <col style="width:92px">
+          <col style="width:120px">
           <col style="width:148px">
-          <col style="width:88px">
-          <col style="width:110px">
-          <col style="width:52px">
         </colgroup>
         <thead>
           <tr>
             <th>#</th>
             <th>文件</th>
             <th>状态</th>
-            <th class="progress-cell">进度</th>
+            <th>进度</th>
             <th>速度</th>
             <th>大小</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="task-tbody">
-          <tr><td colspan="7"><div class="empty-state"><div class="icon">📭</div>暂无任务，请先提交 URL</div></td></tr>
-        </tbody>
+        <tbody id="task-tbody"></tbody>
       </table>
     </div>
+    <div class="cards" id="task-cards"></div>
   </div>
 
-</div><!-- /container -->
+  <div class="card" id="files-card">
+    <h2>已下载文件</h2>
+    <p class="hint">这里列出服务器 downloads 目录中的文件。下载会保存到你自己的电脑。</p>
+    <div class="toolbar">
+      <input type="text" id="file-q" class="grow" placeholder="按文件名或路径搜索" autocomplete="off" />
+      <button class="btn btn-ghost btn-sm" id="btn-files" type="button">刷新</button>
+    </div>
+    <div id="file-list"><div class="empty-state">还没有文件</div></div>
+  </div>
+
+</div>
 
 <script>
-let state = {
-  valid_count: 0, unsupported_count: 0, downloading: false,
-  tasks: [], output_dir: "", status_message: "就绪",
+const STATUS = {
+  waiting: ["等待", "waiting"],
+  connecting: ["连接中", "connecting"],
+  downloading: ["下载中", "downloading"],
+  completed: ["完成", "completed"],
+  failed: ["失败", "failed"],
+  stopped: ["已停止", "stopped"],
 };
+const RUNNING = new Set(["connecting", "downloading"]);
+
+let state = {
+  tasks: [], unsupported: [], batches: [], downloading: false,
+  status_message: "就绪", workers: {{ workers }}, today_dir: {{ today_dir|tojson }},
+};
+let filter = localStorage.getItem("auto_dl_filter") || "all";
+let streamOpen = false;
+let fileQuery = "";
+let fileTimer = 0;
+let lastDone = -1;
+const notified = {};
+
+const subdirInput = document.getElementById("subdir");
+subdirInput.value = localStorage.getItem("auto_dl_subdir") || "";
+document.getElementById("only-mine").checked = localStorage.getItem("auto_dl_only_mine") === "1";
+document.querySelectorAll("#filters .chip").forEach(chip => {
+  chip.classList.toggle("on", chip.dataset.filter === filter);
+});
+
+function myBatches() {
+  try { return JSON.parse(localStorage.getItem("auto_dl_my_batches") || "[]"); }
+  catch (e) { return []; }
+}
+function rememberBatch(id) {
+  if (!id) return;
+  const ids = myBatches().filter(item => item !== id);
+  ids.unshift(id);
+  localStorage.setItem("auto_dl_my_batches", JSON.stringify(ids.slice(0, 50)));
+  localStorage.setItem("auto_dl_batch", id);
+}
+function selectedBatch() {
+  return document.getElementById("batch").value || localStorage.getItem("auto_dl_batch") || "";
+}
 
 const evtSource = new EventSource("/api/stream");
-evtSource.onmessage = function(e) {
-  try { state = JSON.parse(e.data); render(); } catch(err) {}
+evtSource.onopen = function() {
+  streamOpen = true;
+  document.getElementById("conn-banner").classList.remove("show");
 };
-evtSource.onerror = function() { /* auto-reconnect */ };
+evtSource.onmessage = function(e) {
+  document.getElementById("conn-banner").classList.remove("show");
+  try {
+    const next = JSON.parse(e.data);
+    noteFinished(state, next);
+    state = next;
+    render();
+  } catch (err) {}
+};
+evtSource.onerror = function() {
+  if (streamOpen || evtSource.readyState === EventSource.CLOSED) {
+    document.getElementById("conn-banner").classList.add("show");
+  }
+};
+
+function noteFinished(prev, next) {
+  const mine = new Set(myBatches());
+  mine.forEach(id => {
+    const before = (prev.tasks || []).filter(t => t.batch_id === id);
+    const after = (next.tasks || []).filter(t => t.batch_id === id);
+    const wasRunning = before.some(t => RUNNING.has(t.status));
+    const settled = after.length > 0 && after.every(t => t.status === "completed" || t.status === "failed");
+    if (!wasRunning || !settled) return;
+    const ok = after.filter(t => t.status === "completed").length;
+    const bad = after.filter(t => t.status === "failed").length;
+    const key = id + ":" + ok + ":" + bad + ":" + after.length;
+    if (notified[id] === key) return;
+    notified[id] = key;
+    const body = "成功 " + ok + "，失败 " + bad;
+    if (Notification.permission === "granted") {
+      try { new Notification("一批下载已结束", { body }); } catch (e) {}
+    }
+  });
+}
 
 function render() {
+  document.getElementById("worker-label").textContent = "线程: " + (state.workers || "");
+  if (state.today_dir) previewDir();
   const tasks = state.tasks || [];
-  const hasWaiting = tasks.some(t => t.status === "waiting");
-  const hasFailed = tasks.some(t => t.status === "failed");
+  const show = tasks.length > 0 || (state.unsupported || []).length > 0;
+  document.getElementById("progress-card").style.display = show ? "" : "none";
 
-  document.getElementById("btn-start").disabled = !hasWaiting || state.downloading;
-  document.getElementById("btn-stop").disabled = !state.downloading;
-  document.getElementById("btn-retry").disabled = !hasFailed || state.downloading;
-
-  document.getElementById("summary-card").style.display =
-    (tasks.length > 0 || state.unsupported_count > 0) ? "" : "none";
-  document.getElementById("progress-card").style.display = tasks.length > 0 ? "" : "none";
-
-  document.getElementById("sum-total").textContent = state.valid_count + state.unsupported_count;
-  document.getElementById("sum-valid").textContent = state.valid_count;
-  document.getElementById("sum-unsupported").textContent = state.unsupported_count;
-
-  const ulist = document.getElementById("unsupported-list");
-  if (state.unsupported_urls && state.unsupported_urls.length > 0) {
-    ulist.style.display = "";
-    ulist.innerHTML = state.unsupported_urls.map(u => `<div class="item">⚠ ${escapeHtml(u)}</div>`).join("");
-  } else {
-    ulist.style.display = "none";
-  }
+  const count = status => tasks.filter(t => t.status === status).length;
+  const active = tasks.filter(t => t.status === "waiting" || RUNNING.has(t.status)).length;
+  document.getElementById("sum-active").textContent = active;
+  document.getElementById("sum-done").textContent = count("completed");
+  document.getElementById("sum-fail").textContent = count("failed");
+  document.getElementById("sum-unsupported").textContent = state.unsupported_count || (state.unsupported || []).length;
 
   const dot = document.getElementById("status-dot");
   dot.className = "status-dot " + (state.downloading ? "active" : "idle");
   document.getElementById("status-text").textContent = state.status_message || "就绪";
 
+  syncBatchSelect();
+  const batch = selectedBatch();
+  const inBatch = tasks.filter(t => t.batch_id === batch);
+  document.getElementById("btn-resume").disabled = !inBatch.some(t => t.status === "waiting" || t.status === "stopped");
+  document.getElementById("btn-stop").disabled = !inBatch.some(t => t.status === "waiting" || RUNNING.has(t.status));
+  document.getElementById("btn-retry").disabled = !inBatch.some(t => t.status === "failed");
+  document.getElementById("btn-clear").disabled = !inBatch.some(t => t.status === "completed");
+
+  renderUnsupported();
   renderTasks();
+  const done = count("completed");
+  if (done !== lastDone) {
+    lastDone = done;
+    refreshFiles();
+  }
+}
+
+function syncBatchSelect() {
+  const sel = document.getElementById("batch");
+  const batches = state.batches || [];
+  const sig = batches.map(b => b.id + ":" + b.task_count + ":" + b.output_dir).join("|");
+  if (sel.dataset.sig !== sig && document.activeElement !== sel) {
+    sel.dataset.sig = sig;
+    sel.innerHTML = batches.map(b =>
+      `<option value="${escapeHtml(b.id)}">${escapeHtml(b.id)} · ${escapeHtml(b.output_dir)} · ${b.task_count} 个</option>`
+    ).join("");
+  }
+  const values = [...sel.options].map(o => o.value);
+  const preferred = localStorage.getItem("auto_dl_batch") || sel.value || "";
+  if (values.includes(preferred)) sel.value = preferred;
+  else if (values.length) {
+    sel.value = values[0];
+    localStorage.setItem("auto_dl_batch", sel.value);
+  }
+}
+
+function visibleTasks() {
+  let tasks = state.tasks || [];
+  if (document.getElementById("only-mine").checked) {
+    const mine = new Set(myBatches());
+    tasks = tasks.filter(t => mine.has(t.batch_id));
+  }
+  if (filter === "active") {
+    tasks = tasks.filter(t => t.status === "waiting" || RUNNING.has(t.status));
+  }
+  if (filter === "failed") tasks = tasks.filter(t => t.status === "failed");
+  if (filter === "done") tasks = tasks.filter(t => t.status === "completed");
+  const q = document.getElementById("task-q").value.trim().toLowerCase();
+  if (q) {
+    tasks = tasks.filter(t =>
+      `${t.filename || ""} ${t.url || ""} ${t.result_path || ""} ${t.error || ""} ${t.site || ""}`.toLowerCase().includes(q)
+    );
+  }
+  return tasks;
+}
+
+function renderUnsupported() {
+  const box = document.getElementById("unsupported-list");
+  let items = state.unsupported || [];
+  if (document.getElementById("only-mine").checked) {
+    const mine = new Set(myBatches());
+    items = items.filter(item => mine.has(item.batch_id));
+  }
+  if (!items.length) {
+    box.style.display = "none";
+    box.innerHTML = "";
+    return;
+  }
+  box.style.display = "";
+  box.innerHTML = items.map(item =>
+    `<div class="item">${escapeHtml(item.reason || "不支持")} — ${escapeHtml(item.url || "")}</div>`
+  ).join("");
+}
+
+function selecting(el) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.anchorNode) return false;
+  return el.contains(sel.anchorNode);
 }
 
 function renderTasks() {
   const tbody = document.getElementById("task-tbody");
-  const tasks = state.tasks || [];
-
-  if (tasks.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">📭</div>暂无任务</div></td></tr>';
+  const cards = document.getElementById("task-cards");
+  if (selecting(tbody) || selecting(cards)) return;
+  const tasks = visibleTasks();
+  if (!tasks.length) {
+    const text = '<div class="empty-state">没有符合筛选的任务</div>';
+    tbody.innerHTML = `<tr><td colspan="7">${text}</td></tr>`;
+    cards.innerHTML = text;
     return;
   }
-
-  const statusBadges = {
-    waiting:     ["等待", "waiting"],
-    connecting:  ["连接中", "connecting"],
-    downloading: ["下载中", "downloading"],
-    completed:   ["完成", "completed"],
-    failed:      ["失败", "failed"],
-  };
-
-  tbody.innerHTML = tasks.map(t => {
-    const [label, cls] = statusBadges[t.status] || [t.status, "waiting"];
-    const badge = `<span class="badge badge-${cls}">${label}</span>`;
-
-    // 文件名 + URL 双行显示
-    let nameHtml;
-    if (t.filename) {
-      nameHtml = `
-        <div class="task-name">
-          <span class="task-filename" title="${escapeHtml(t.filename)}">${escapeHtml(t.filename)}</span>
-          <span class="task-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</span>
-        </div>`;
-    } else {
-      // 尚未获取文件名，仅显示 URL
-      nameHtml = `
-        <div class="task-name">
-          <span class="task-filename" style="color:var(--text-dim);" title="${escapeHtml(t.url)}">${escapeHtml(truncateUrl(t.url))}</span>
-          <span class="task-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</span>
-        </div>`;
-    }
-
-    // 进度列
-    let progressHtml = "--";
-    if (t.status === "downloading" || t.status === "connecting") {
-      const pct = Math.min(100, Math.max(0, t.percent || 0));
-      progressHtml = `
-        <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" style="width:${pct}%;background:var(--accent)"></div>
-        </div>
-        <div class="progress-text">${pct.toFixed(1)}%</div>`;
-    } else if (t.status === "completed") {
-      progressHtml = `
-        <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" style="width:100%;background:var(--green)"></div>
-        </div>
-        <div class="progress-text" style="color:var(--green)">100%</div>`;
-    } else if (t.status === "failed") {
-      const err = t.error || "下载失败";
-      progressHtml = `<span class="error-text" title="${escapeHtml(err)}">${escapeHtml(err)}</span>`;
-    }
-
-    // 速度
-    const speedStr = (t.status === "downloading" && t.speed > 0) ? formatSpeed(t.speed) : "--";
-
-    // 大小
-    let sizeStr = "--";
-    if (t.total) { sizeStr = formatSize(t.downloaded) + " / " + formatSize(t.total); }
-    else if (t.downloaded > 0) { sizeStr = formatSize(t.downloaded); }
-
-    // 操作
-    let actionHtml = "";
-    if (t.status === "failed") {
-      actionHtml = `<button class="btn btn-ghost btn-sm" onclick="retryOne(${t.index})" title="重试">🔄</button>`;
-    }
-
-    return `<tr>
-      <td style="color:var(--text-dim);">${t.index}</td>
-      <td>${nameHtml}</td>
-      <td>${badge}</td>
-      <td class="progress-cell">${progressHtml}</td>
-      <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${speedStr}</td>
-      <td style="font-size:0.82rem;color:var(--text-dim);white-space:nowrap;">${sizeStr}</td>
-      <td style="text-align:center;">${actionHtml}</td>
-    </tr>`;
-  }).join("");
+  tbody.innerHTML = tasks.map(taskRow).join("");
+  cards.innerHTML = tasks.map(taskCard).join("");
 }
 
-// ---------- 工具 ----------
+function siteLabel(site) {
+  return site === "cloud.mail.ru-file" ? "cloud.mail.ru" : (site || "");
+}
+function shownName(t) {
+  return t.filename || t.result_name || t.url || "";
+}
+function serverPath(t) {
+  if (!t.result_path) return "";
+  return "downloads/" + t.result_path;
+}
+function etaText(t) {
+  if (!(t.speed > 0) || !t.total || t.total <= t.downloaded) return "";
+  let sec = Math.round((t.total - t.downloaded) / t.speed);
+  if (sec < 60) return "剩余 " + sec + " 秒";
+  const min = Math.floor(sec / 60);
+  sec = sec % 60;
+  if (min < 60) return "剩余 " + min + " 分 " + sec + " 秒";
+  return "剩余 " + Math.floor(min / 60) + " 小时 " + (min % 60) + " 分";
+}
+function progressInner(t) {
+  if (t.status === "downloading" || t.status === "connecting") {
+    const pct = Math.min(100, Math.max(0, t.percent || 0));
+    const eta = etaText(t);
+    return `<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+      <div class="progress-text">${pct.toFixed(1)}%${eta ? " · " + eta : ""}</div>`;
+  }
+  if (t.status === "completed") {
+    return `<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:100%;background:var(--green)"></div></div>
+      <div class="progress-text" style="color:var(--green)">100%</div>`;
+  }
+  if (t.status === "failed") {
+    const err = t.error || "下载失败";
+    return `<div class="error-box">${escapeHtml(err)}</div>
+      <button class="btn btn-ghost btn-sm" type="button" data-act="copy-error" data-index="${t.index}">复制原因</button>`;
+  }
+  return `<div class="progress-text">--</div>`;
+}
+function pathInner(t) {
+  const path = serverPath(t);
+  if (!path) return "";
+  let html = `<div class="path-row"><span class="task-path" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
+    <button class="btn btn-ghost btn-sm" type="button" data-act="copy-path" data-index="${t.index}">复制</button>`;
+  if (t.file_ready) {
+    html += `<a class="btn btn-ghost btn-sm" href="/api/files/download?path=${encodeURIComponent(t.result_path)}">下载</a>`;
+  }
+  html += "</div>";
+  return html;
+}
+function actionsInner(t) {
+  const bits = [];
+  if (t.status === "failed" || t.status === "stopped") {
+    bits.push(`<button class="btn btn-ghost btn-sm" type="button" data-act="retry" data-index="${t.index}">重试</button>`);
+  }
+  if (t.status === "waiting" || t.status === "connecting" || t.status === "downloading") {
+    bits.push(`<button class="btn btn-ghost btn-sm" type="button" data-act="cancel" data-index="${t.index}">取消</button>`);
+  }
+  if (t.status !== "connecting" && t.status !== "downloading") {
+    bits.push(`<button class="btn btn-ghost btn-sm" type="button" data-act="remove" data-index="${t.index}">删除</button>`);
+  }
+  return `<div class="actions">${bits.join("")}</div>`;
+}
+function nameInner(t) {
+  const name = shownName(t);
+  return `<div class="task-name">
+    <span class="task-filename" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+    <span class="task-url" title="${escapeHtml(t.url || "")}">${escapeHtml(siteLabel(t.site))} · ${escapeHtml(t.url || "")}</span>
+    ${pathInner(t)}
+  </div>`;
+}
+function sizeText(t) {
+  if (t.total) return formatSize(t.downloaded) + " / " + formatSize(t.total);
+  if (t.downloaded > 0) return formatSize(t.downloaded);
+  return "--";
+}
+function speedText(t) {
+  return (t.status === "downloading" && t.speed > 0) ? formatSpeed(t.speed) : "--";
+}
+function badge(t) {
+  const pair = STATUS[t.status] || [t.status, "waiting"];
+  return `<span class="badge badge-${pair[1]}">${pair[0]}</span>`;
+}
+function taskRow(t) {
+  return `<tr>
+    <td style="color:var(--text-dim);">${t.index}</td>
+    <td>${nameInner(t)}</td>
+    <td>${badge(t)}</td>
+    <td>${progressInner(t)}</td>
+    <td style="white-space:nowrap;">${speedText(t)}</td>
+    <td class="muted" style="white-space:nowrap;">${sizeText(t)}</td>
+    <td>${actionsInner(t)}</td>
+  </tr>`;
+}
+function taskCard(t) {
+  return `<article class="task-card">
+    ${nameInner(t)}
+    <div style="margin:8px 0;">${badge(t)}</div>
+    ${progressInner(t)}
+    <div class="muted" style="margin-top:6px;">速度 ${speedText(t)} · 大小 ${sizeText(t)}</div>
+    <div style="margin-top:8px;">${actionsInner(t)}</div>
+  </article>`;
+}
+
 function formatSize(b) {
+  b = Number(b) || 0;
   if (b < 1024) return b + " B";
   if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
   if (b < 1073741824) return (b / 1048576).toFixed(1) + " MB";
@@ -396,84 +630,172 @@ function formatSpeed(b) {
   return (b / 1048576).toFixed(1) + " MB/s";
 }
 function escapeHtml(s) {
-  const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
-function truncateUrl(url) {
-  return url.length > 55 ? url.substring(0, 52) + '...' : url;
+function previewDir() {
+  const base = state.today_dir || document.getElementById("save-preview").textContent;
+  const sub = subdirInput.value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  document.getElementById("save-preview").textContent = sub ? base + "/" + sub : base;
+}
+function taskOf(index) {
+  return (state.tasks || []).find(t => t.index === index);
+}
+function passwordValue() {
+  return document.getElementById("gofile-password").value;
 }
 
-// ---------- API ----------
+async function post(url, body) {
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  const data = await resp.json();
+  if (!data.ok) throw new Error(data.error || "请求失败");
+  return data;
+}
+
 async function submitUrls() {
   const urls = document.getElementById("urls").value.trim();
-  const outdir = document.getElementById("outdir").value.trim();
-  if (!urls) { alert("请输入至少一个下载链接"); return; }
-
+  if (!urls) { alert("请粘贴至少一段包含链接的文字"); return; }
+  if (Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch (e) {}
+  }
   const btn = document.getElementById("btn-submit");
-  btn.disabled = true; btn.textContent = "提交中...";
-
-  try {
-    const resp = await fetch("/api/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls, output_dir: outdir }),
-    });
-    const data = await resp.json();
-    if (!data.ok) { alert("错误: " + data.error); }
-  } catch(e) { alert("请求失败: " + e.message); }
-  finally { btn.disabled = false; btn.textContent = "📋 提交 URL"; }
-}
-
-async function startDownload() {
-  const btn = document.getElementById("btn-start");
-  btn.disabled = true; btn.textContent = "启动中...";
-  try {
-    const resp = await fetch("/api/start", { method: "POST" });
-    const data = await resp.json();
-    if (!data.ok) { alert("错误: " + data.error); }
-  } catch(e) { alert("请求失败: " + e.message); }
-  finally { btn.disabled = false; btn.textContent = "▶ 开始下载"; }
-}
-
-async function stopDownload() {
-  const btn = document.getElementById("btn-stop");
-  btn.disabled = true; btn.textContent = "停止中...";
-  try { await fetch("/api/stop", { method: "POST" }); }
-  catch(e) { alert("请求失败: " + e.message); }
-  finally { btn.disabled = false; btn.textContent = "⏹ 停止"; }
-}
-
-async function retryFailed() {
-  const btn = document.getElementById("btn-retry");
-  btn.disabled = true; btn.textContent = "重试中...";
-  try {
-    const resp = await fetch("/api/retry", { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
-    const data = await resp.json();
-    if (!data.ok) { alert("错误: " + data.error); }
-  } catch(e) { alert("请求失败: " + e.message); }
-  finally { btn.disabled = false; btn.textContent = "🔄 重试失败"; }
-}
-
-async function retryOne(index) {
-  try {
-    const resp = await fetch("/api/retry", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ index }),
-    });
-    const data = await resp.json();
-    if (!data.ok) { alert("错误: " + data.error); }
-  } catch(e) { alert("请求失败: " + e.message); }
-}
-
-async function clearCompleted() {
-  const btn = document.getElementById("btn-clear");
   btn.disabled = true;
-  try { await fetch("/api/clear", { method: "POST" }); }
-  catch(e) { alert("请求失败: " + e.message); }
-  finally { btn.disabled = false; }
+  btn.textContent = "提交中...";
+  try {
+    const data = await post("/api/submit", {
+      urls,
+      subdir: subdirInput.value.trim(),
+      gofile_password: passwordValue(),
+    });
+    localStorage.setItem("auto_dl_subdir", subdirInput.value.trim());
+    if (data.batch_id) rememberBatch(data.batch_id);
+    document.getElementById("urls").value = "";
+    document.getElementById("gofile-password").value = "";
+    const box = document.getElementById("submit-result");
+    let line = `已加入 ${data.added}，跳过重复 ${data.skipped}，不支持 ${data.unsupported}`;
+    if (data.added && data.output_dir) line += `。文件在 ${data.output_dir}`;
+    box.hidden = false;
+    box.textContent = line;
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "提交并开始";
+  }
 }
 
+async function batchAction(url, extra) {
+  const batch_id = selectedBatch();
+  if (!batch_id) { alert("请选择要操作的批次"); return; }
+  try {
+    await post(url, Object.assign({ batch_id, gofile_password: passwordValue() }, extra || {}));
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById("btn-submit").addEventListener("click", submitUrls);
+document.getElementById("btn-resume").addEventListener("click", () => batchAction("/api/start"));
+document.getElementById("btn-stop").addEventListener("click", () => batchAction("/api/stop"));
+document.getElementById("btn-retry").addEventListener("click", () => batchAction("/api/retry"));
+document.getElementById("btn-clear").addEventListener("click", () => batchAction("/api/clear"));
+subdirInput.addEventListener("input", previewDir);
+document.getElementById("task-q").addEventListener("input", renderTasks);
+document.getElementById("only-mine").addEventListener("change", function() {
+  localStorage.setItem("auto_dl_only_mine", this.checked ? "1" : "0");
+  render();
+});
+document.getElementById("batch").addEventListener("change", function() {
+  localStorage.setItem("auto_dl_batch", this.value);
+  render();
+});
+document.getElementById("filters").addEventListener("click", function(e) {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  filter = chip.dataset.filter;
+  localStorage.setItem("auto_dl_filter", filter);
+  document.querySelectorAll("#filters .chip").forEach(item => item.classList.toggle("on", item === chip));
+  renderTasks();
+});
+
+function onTaskClick(e) {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const index = Number(btn.dataset.index);
+  const task = taskOf(index);
+  const act = btn.dataset.act;
+  if (act === "copy-error") copyText((task && task.error) || "下载失败", btn);
+  if (act === "copy-path") copyText(task ? serverPath(task) : "", btn);
+  if (act === "retry") post("/api/retry", { index, gofile_password: passwordValue() }).catch(err => alert(err.message));
+  if (act === "cancel") post("/api/cancel", { index }).catch(err => alert(err.message));
+  if (act === "remove") post("/api/remove", { index }).catch(err => alert(err.message));
+}
+document.getElementById("task-tbody").addEventListener("click", onTaskClick);
+document.getElementById("task-cards").addEventListener("click", onTaskClick);
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  if (!btn) return;
+  const old = btn.textContent;
+  btn.textContent = "已复制";
+  setTimeout(() => { btn.textContent = old; }, 1000);
+}
+
+async function refreshFiles() {
+  const list = document.getElementById("file-list");
+  try {
+    const resp = await fetch("/api/files?q=" + encodeURIComponent(fileQuery));
+    const data = await resp.json();
+    const files = data.files || [];
+    if (!files.length) {
+      list.innerHTML = '<div class="empty-state">没有匹配的文件</div>';
+      return;
+    }
+    list.innerHTML = files.map(file => {
+      const path = "downloads/" + file.path;
+      return `<div class="file-row">
+        <div class="meta">
+          <div class="task-filename" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+          <div class="task-path" title="${escapeHtml(path)}">${escapeHtml(path)}</div>
+          <div class="muted">${formatSize(file.size)}</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-ghost btn-sm" type="button" data-act="copy-file" data-path="${escapeHtml(path)}">复制路径</button>
+          <a class="btn btn-primary btn-sm" href="/api/files/download?path=${encodeURIComponent(file.path)}">下载</a>
+        </div>
+      </div>`;
+    }).join("") + (data.truncated ? '<div class="muted">只显示最近 400 个</div>' : "");
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state">文件列表获取失败</div>';
+  }
+}
+document.getElementById("file-list").addEventListener("click", function(e) {
+  const btn = e.target.closest("[data-act='copy-file']");
+  if (!btn) return;
+  copyText(btn.dataset.path || "", btn);
+});
+document.getElementById("btn-files").addEventListener("click", refreshFiles);
+document.getElementById("file-q").addEventListener("input", function() {
+  fileQuery = this.value.trim();
+  clearTimeout(fileTimer);
+  fileTimer = setTimeout(refreshFiles, 300);
+});
+
+previewDir();
 render();
+refreshFiles();
 </script>
 </body>
 </html>
