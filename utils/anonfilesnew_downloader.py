@@ -23,6 +23,7 @@ from typing import Callable
 import requests
 
 from utils.logger import error as _log_error
+from utils.proxy import requests_proxies
 
 # =============================================================================
 # 常量
@@ -32,7 +33,6 @@ CHUNK_SIZE: int = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES: int = 5
 CONNECT_TIMEOUT: float = 15.0
 READ_TIMEOUT: float = 120.0
-PROXY: str = "socks5h://127.0.0.1:7891"
 
 # 匹配 anonfilesnew.com 的分享链接
 _URL_PATTERN = re.compile(r"anonfilesnew\.com/(?:s/)?([A-Za-z0-9_-]+)")
@@ -127,7 +127,8 @@ def download(
     """
     stop = stop_event or Event()
     session = requests.Session()
-    session.proxies = {"http": PROXY, "https": PROXY}
+    session.trust_env = False
+    session.proxies = requests_proxies()
     session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
     def _notify(status: str, filename: str, downloaded: int,

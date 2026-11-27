@@ -24,6 +24,11 @@ from typing import Callable
 
 from flask import Flask, Response, jsonify, render_template, request
 
+from utils.proxy import ensure_library_proxy, load_dotenv
+
+load_dotenv()
+ensure_library_proxy()
+
 # ---- 导入下载器 ----
 from utils.gofile_downloader import download as _gofile_dl
 from utils.uploadee_downloader import downloader as _uploadee_dl
@@ -77,6 +82,7 @@ class TaskInfo:
     index: int
     url: str
     site: str
+    source_url: str = ""
     status: str = "waiting"
     filename: str = ""
     downloaded: int = 0
@@ -174,17 +180,14 @@ def _dispatch(task: TaskInfo, stop: Event) -> None:
         task.speed = info.get("speed", 0)
         task.percent = info.get("percent", 0)
 
-    entry = _DOWNLOADERS.get(task.site)
-    if entry is None:
-        task.status = "failed"
-        task.error = f"未知网站: {task.site}"
-        with _lock:
-            _active_count -= 1
-        return
-
-    download_fn, returns_list = entry
-
     try:
+        entry = _DOWNLOADERS.get(task.site)
+        if entry is None:
+            task.status = "failed"
+            task.error = f"未知网站: {task.site}"
+            return
+
+        download_fn, returns_list = entry
         task.status = "connecting"
         result = download_fn(
             task.url, _output_dir, progress_callback=cb, stop_event=stop
@@ -205,12 +208,18 @@ def _dispatch(task: TaskInfo, stop: Event) -> None:
     finally:
         with _lock:
             _active_count -= 1
+            active = _active_count
+            current_stop = _stop_event
 
-        # 所有任务完成后更新状态
-        if _active_count <= 0:
-            done = sum(1 for t in _tasks if t.status == "completed")
-            fail = sum(1 for t in _tasks if t.status == "failed")
-            _set_status(f"完成 — 成功 {done}，失败 {fail}")
+        # 只由这一代任务收尾，避免停止后立刻开始时被旧线程改掉状态
+        if active > 0 or current_stop is not stop:
+            return
+        if stop.is_set():
+            _set_status("已停止")
+            return
+        done = sum(1 for t in _tasks if t.status == "completed")
+        fail = sum(1 for t in _tasks if t.status == "failed")
+        _set_status(f"完成 — 成功 {done}，失败 {fail}")
 
 
 def _submit_waiting_tasks() -> int:
@@ -220,6 +229,7 @@ def _submit_waiting_tasks() -> int:
     submitted = 0
     # ponytail: 整个遍历期间持锁，避免与 api_submit/api_clear 并发竞争
     with _lock:
+        stop = _stop_event
         for t in _tasks:
             if t.status != "waiting":
                 continue
@@ -230,7 +240,7 @@ def _submit_waiting_tasks() -> int:
             t.speed = 0.0
             t.percent = 0.0
             t.error = ""
-            _executor.submit(_dispatch, t, _stop_event)
+            _executor.submit(_dispatch, t, stop)
             _active_count += 1
             submitted += 1
 
@@ -294,11 +304,11 @@ def api_submit():
             if normalized in _seen_urls:
                 skipped_dup += 1
                 continue
-            _seen_urls.add(normalized)
 
         site = classify_url(url)
 
-        # cloud.mail.ru 文件夹 → 展开为 N 个单文件任务
+        # cloud.mail.ru 文件夹 → 展开为 N 个单文件任务。
+        # 解析失败不占去重名额，改完链接可以再交。
         if site == "cloud.mail.ru":
             try:
                 resolved = _cloud_mail_ru_resolve(url)
@@ -310,19 +320,37 @@ def api_submit():
                 new_unsupported_urls.append(url)
                 continue
 
-            for file_info in resolved:
-                task = TaskInfo(
-                    index=_next_index,
-                    url=file_info["url"],
-                    site="cloud.mail.ru-file",
-                    filename=file_info["filename"],
-                )
-                new_supported.append(task)
-                _next_index += 1
+            with _lock:
+                if normalized in _seen_urls:
+                    skipped_dup += 1
+                    continue
+                _seen_urls.add(normalized)
+                for file_info in resolved:
+                    new_supported.append(
+                        TaskInfo(
+                            index=_next_index,
+                            url=file_info["url"],
+                            site="cloud.mail.ru-file",
+                            source_url=normalized,
+                            filename=file_info["filename"],
+                        )
+                    )
+                    _next_index += 1
         elif site:
-            task = TaskInfo(index=_next_index, url=url, site=site)
-            new_supported.append(task)
-            _next_index += 1
+            with _lock:
+                if normalized in _seen_urls:
+                    skipped_dup += 1
+                    continue
+                _seen_urls.add(normalized)
+                new_supported.append(
+                    TaskInfo(
+                        index=_next_index,
+                        url=url,
+                        site=site,
+                        source_url=normalized,
+                    )
+                )
+                _next_index += 1
         else:
             new_unsupported_urls.append(url)
 
@@ -369,8 +397,9 @@ def api_start():
     global _stop_event
 
     # 如果旧 stop_event 已被设置（之前被 stop 了），创建新的
-    if _stop_event.is_set():
-        _stop_event = Event()
+    with _lock:
+        if _stop_event.is_set():
+            _stop_event = Event()
 
     submitted = _submit_waiting_tasks()
 
@@ -383,11 +412,7 @@ def api_start():
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     """停止所有进行中的下载。"""
-    global _active_count
     _stop_event.set()
-    # 下次 start 会创建新的 Event
-    with _lock:
-        _active_count = 0
     _set_status("已停止")
     return jsonify({"ok": True, "message": "停止信号已发送"})
 
@@ -423,8 +448,9 @@ def api_retry():
     if error_msg:
         return jsonify({"ok": False, "error": error_msg})
 
-    if _stop_event.is_set():
-        _stop_event = Event()
+    with _lock:
+        if _stop_event.is_set():
+            _stop_event = Event()
 
     submitted = _submit_waiting_tasks()
     return jsonify({"ok": True, "message": f"已重新开始 {submitted} 个任务"})
@@ -435,10 +461,14 @@ def api_clear():
     """清空已完成和失败的任务记录。"""
     global _tasks
     with _lock:
-        # 仅保留 waiting/connecting/downloading 的任务
-        _tasks = [
+        kept = [
             t for t in _tasks if t.status in ("waiting", "connecting", "downloading")
         ]
+        kept_sources = {t.source_url for t in kept}
+        for t in _tasks:
+            if t.source_url and t.source_url not in kept_sources:
+                _seen_urls.discard(t.source_url)
+        _tasks = kept
     _set_status("已清空已完成的任务")
     return jsonify({"ok": True, "message": "已清空"})
 

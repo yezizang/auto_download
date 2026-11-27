@@ -39,15 +39,18 @@ python app.py --host 0.0.0.0 --port 8080
 
 ## 配置
 
+配置放在项目根目录的 `.env`（参考 `.env.example`，不要提交）。进程里已经设置的环境变量优先于 `.env`。
+
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
+| `AUTO_DL_PROXY` | 空 | 各下载器共用的代理。未设置时依次看 `ALL_PROXY`、`HTTPS_PROXY`、`HTTP_PROXY` |
 | `AUTO_DL_WORKERS` | `5` | 并发下载线程数 |
 | `GOFILE_DL_BASE_URL` | `http://192.168.3.160:2355` | gofile-dl 服务地址 |
-| `GOFILE_DL_USERNAME` / `GOFILE_DL_PASSWORD` | `admin` / `Abc123!!` | gofile-dl 的 Basic Auth |
+| `GOFILE_DL_USERNAME` / `GOFILE_DL_PASSWORD` | 空 | gofile-dl 的 Basic Auth，必须设置 |
 | `GOFILE_DL_HOST_DIR` | `/opt/gofile-dl/downloads` | gofile-dl 容器 `/data` 映射到的宿主机目录 |
 | `GOFILE_DL_REMOTE_DIR` | `/data` | gofile-dl 容器内下载目录（勿改，除非卷映射不同） |
 
-各下载器支持标准代理环境变量（`ALL_PROXY`、`HTTPS_PROXY`）来走代理。
+本机和服务器用各自的 `.env`。gofile 要把结果从 `GOFILE_DL_HOST_DIR` 拷回输出目录，所以跑 gofile 的进程必须和那个目录在同一台机器上。
 
 > **gofile.io 已改为转发模式**：不再直连 gofile.io API，而是把链接提交给本机跑的
 > gofile-dl 容器（见 `test/docker-compose.yml`）下载，完成后把结果从

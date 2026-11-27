@@ -18,6 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from utils.logger import error as _log_error
+from utils.proxy import requests_proxies
 
 CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES = 3
@@ -37,10 +38,8 @@ def _make_session() -> requests.Session:
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
     })
-    # 尊重环境代理
-    proxy = os.environ.get("ALL_PROXY") or os.environ.get("HTTPS_PROXY")
-    if proxy:
-        s.proxies = {"http": proxy, "https": proxy}
+    s.trust_env = False
+    s.proxies = requests_proxies()
     return s
 
 

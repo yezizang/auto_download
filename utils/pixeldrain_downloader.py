@@ -19,6 +19,7 @@ import requests
 import pixeldrain
 
 from utils.logger import error as _log_error
+from utils.proxy import requests_proxies
 
 
 # =============================================================================
@@ -29,7 +30,6 @@ CHUNK_SIZE: int = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES: int = 5
 CONNECT_TIMEOUT: float = 15.0
 READ_TIMEOUT: float = 120.0
-PROXY: str = "socks5h://127.0.0.1:7891"
 
 # Pixeldrain 链接中提取 file_id 的正则
 _URL_PATTERN = re.compile(r"pixeldrain\.com/(?:u|l|api/file)/([a-zA-Z0-9]+)")
@@ -54,7 +54,8 @@ class PixeldrainDownloader:
         self._progress_callback = progress_callback
         self._stop_event = stop_event or Event()
         self._session = requests.Session()
-        self._session.proxies = {"http": PROXY, "https": PROXY}
+        self._session.trust_env = False
+        self._session.proxies = requests_proxies()
         self._file_id: str | None = None
 
     def _extract_id(self) -> str | None:

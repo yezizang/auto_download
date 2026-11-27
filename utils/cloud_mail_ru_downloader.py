@@ -20,16 +20,11 @@ from typing import Callable
 import requests
 
 from utils.logger import error as _log_error
+from utils.proxy import get_proxy
 
 CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES = 3
 TIMEOUT = (15, 120)
-
-# 代理回退链：SOCKS5 不通就换 HTTP 代理，必须走代理
-_PROXY_CHAIN: list[str] = [
-    "socks5h://127.0.0.1:7891",
-    "http://127.0.0.1:7897",
-]
 
 # 并行下载线程数（仅 download_folder 使用）
 DL_WORKERS = int(os.environ.get("AUTO_DL_WORKERS", "5"))
@@ -43,10 +38,19 @@ _UA = (
 def _make_session(proxy: str | None = None) -> requests.Session:
     """创建配置好 UA 和代理的 Session。proxy=None 表示直连。"""
     s = requests.Session()
+    s.trust_env = False
     s.headers.update({"User-Agent": _UA})
     if proxy:
         s.proxies = {"http": proxy, "https": proxy}
     return s
+
+
+def _open_session() -> requests.Session:
+    """cloud.mail.ru 必须走代理。代理由 AUTO_DL_PROXY 或 ALL_PROXY 决定。"""
+    proxy = get_proxy()
+    if not proxy:
+        raise RuntimeError("cloud.mail.ru 需要代理，请设置 AUTO_DL_PROXY 或 ALL_PROXY")
+    return _make_session(proxy)
 
 # ---- Node.js 脚本：从 HTML 中 eval 出 window.cloudSettings 并导出 JSON ----
 _NODE_SCRIPT = r"""
@@ -105,24 +109,19 @@ def resolve(url: str) -> list[dict]:
     返回: [{"url": "https://...", "filename": "xxx.zip"}, ...]
     """
 
-    # Step 1: 抓取页面（代理回退链）
+    session = _open_session()
     last_error = None
-    for proxy in _PROXY_CHAIN:
-        session = _make_session(proxy)
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                resp = session.get(url, timeout=TIMEOUT)
-                resp.raise_for_status()
-                break
-            except requests.RequestException as e:
-                last_error = e
-                if attempt < MAX_RETRIES:
-                    time.sleep(2 ** attempt)
-        else:
-            continue  # 当前代理所有重试都失败，换下一个
-        break  # 成功
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = session.get(url, timeout=TIMEOUT)
+            resp.raise_for_status()
+            break
+        except requests.RequestException as e:
+            last_error = e
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** attempt)
     else:
-        _log_error(f"cloud.mail.ru resolve: all proxies exhausted for {url}", exc=last_error)
+        _log_error(f"cloud.mail.ru resolve failed for {url}", exc=last_error)
         raise RuntimeError(f"Failed to fetch page: {last_error}")
 
     data = _extract_cloud_settings(resp.text)
@@ -213,27 +212,29 @@ def download(
 
     _notify("connecting", safe_name)
 
-    # Step 1: 代理回退 — 逐个代理尝试，直到有一个能成功 GET
-    for proxy in _PROXY_CHAIN:
-        session = _make_session(proxy)
-        got_response = False
-        for attempt in range(1, MAX_RETRIES + 1):
-            if stop.is_set():
-                return None
-            part_size = os.path.getsize(tmp) if os.path.exists(tmp) else 0
-            headers = {"Range": f"bytes={part_size}-"} if part_size > 0 else {}
-            try:
-                dl_resp = session.get(url, headers=headers, stream=True, timeout=TIMEOUT)
-                got_response = True
-                break
-            except requests.RequestException:
-                if attempt < MAX_RETRIES:
-                    time.sleep(2 ** attempt)
-        if got_response:
-            break  # 当前代理可用
-    else:
-        _notify("failed", f"{safe_name}: all proxies exhausted")
-        _log_error(f"cloud.mail.ru download: all proxies failed for {url} → {safe_name}")
+    try:
+        session = _open_session()
+    except RuntimeError as e:
+        _notify("failed", f"{safe_name}: {e}")
+        _log_error(f"cloud.mail.ru download: {url} → {safe_name}", exc=e)
+        return None
+
+    got_response = False
+    for attempt in range(1, MAX_RETRIES + 1):
+        if stop.is_set():
+            return None
+        part_size = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        headers = {"Range": f"bytes={part_size}-"} if part_size > 0 else {}
+        try:
+            dl_resp = session.get(url, headers=headers, stream=True, timeout=TIMEOUT)
+            got_response = True
+            break
+        except requests.RequestException:
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** attempt)
+    if not got_response:
+        _notify("failed", f"{safe_name}: proxy failed")
+        _log_error(f"cloud.mail.ru download failed for {url} → {safe_name}")
         return None
 
     # Step 2: 流式下载（当前 session 已确认可用，断流则重试同一代理）
@@ -383,27 +384,28 @@ def _download_one(task: dict, output_dir: str, agg: _AggregateProgress,
         agg.file_completed()
         return filepath
 
-    # 代理回退：逐个尝试直到有一个能成功 GET
-    for proxy in _PROXY_CHAIN:
-        session = _make_session(proxy)
-        got_response = False
-        for attempt in range(1, MAX_RETRIES + 1):
-            if stop.is_set():
-                return None
-            part_size = os.path.getsize(tmp) if os.path.exists(tmp) else 0
-            headers = {"Range": f"bytes={part_size}-"} if part_size > 0 else {}
-            try:
-                dl_resp = session.get(download_url, headers=headers,
-                                      stream=True, timeout=TIMEOUT)
-                got_response = True
-                break
-            except requests.RequestException:
-                if attempt < MAX_RETRIES:
-                    time.sleep(2 ** attempt)
-        if got_response:
+    try:
+        session = _open_session()
+    except RuntimeError as e:
+        agg.file_failed(f"{safe_name}: {e}")
+        return None
+
+    got_response = False
+    for attempt in range(1, MAX_RETRIES + 1):
+        if stop.is_set():
+            return None
+        part_size = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        headers = {"Range": f"bytes={part_size}-"} if part_size > 0 else {}
+        try:
+            dl_resp = session.get(download_url, headers=headers,
+                                  stream=True, timeout=TIMEOUT)
+            got_response = True
             break
-    else:
-        agg.file_failed(f"{safe_name}: all proxies exhausted")
+        except requests.RequestException:
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** attempt)
+    if not got_response:
+        agg.file_failed(f"{safe_name}: proxy failed")
         return None
 
     for attempt in range(1, MAX_RETRIES + 1):

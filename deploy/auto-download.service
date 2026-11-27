@@ -1,0 +1,17 @@
+[Unit]
+Description=auto_download web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quansh
+Group=quansh
+WorkingDirectory=/home/quansh/Code/auto_download
+EnvironmentFile=/home/quansh/Code/auto_download/.env
+ExecStart=/usr/local/bin/python3.11 app.py --host 0.0.0.0 --port 1111
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

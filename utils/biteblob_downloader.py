@@ -27,6 +27,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from utils.logger import error as _log_error
+from utils.proxy import requests_proxies
 
 # =============================================================================
 # 常量
@@ -36,11 +37,6 @@ CHUNK_SIZE: int = 2 * 1024 * 1024  # 2 MB
 MAX_RETRIES: int = 5
 CONNECT_TIMEOUT: float = 15.0
 READ_TIMEOUT: float = 120.0
-PROXY: str | None = (
-    os.environ.get("ALL_PROXY")
-    or os.environ.get("HTTPS_PROXY")
-    or "socks5h://127.0.0.1:7891"
-)
 
 _UA: str = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -57,8 +53,8 @@ def _build_session(*, use_proxy: bool = True) -> requests.Session:
     """创建带反爬配置的 Session。use_proxy=False 时直连。"""
     s = requests.Session()
     s.trust_env = False  # 不使用系统/环境代理，完全由代码控制
-    if use_proxy and PROXY:
-        s.proxies = {"http": PROXY, "https": PROXY}
+    if use_proxy:
+        s.proxies = requests_proxies()
     s.headers.update(
         {
             "User-Agent": _UA,

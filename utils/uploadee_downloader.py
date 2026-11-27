@@ -24,6 +24,7 @@ from threading import Event
 from bs4 import BeautifulSoup
 
 from utils.logger import error as _log_error
+from utils.proxy import requests_proxies
 
 # =============================================================================
 # 常量
@@ -35,13 +36,9 @@ CONNECT_TIMEOUT: float = 15.0
 READ_TIMEOUT: float = 60.0
 RETRY_BACKOFF_BASE: float = 3.0  # 缩短退避基数，避免长时间卡死
 
-PROXY: str = "socks5h://127.0.0.1:7891"
-
-# 带代理的共享 Session（复用连接，避免连接池耗尽）
+# 共享 Session（复用连接，避免连接池耗尽）。代理在每次下载前按环境变量设置。
 _session = requests.Session()
-
-# 推荐这样写，更稳健
-_session.proxies = {"http": PROXY, "https": PROXY}
+_session.trust_env = False
 
 
 # =============================================================================
@@ -352,6 +349,7 @@ def downloader(
     """
     output_dir = output_dir or getcwd()
     stop = stop_event or Event()
+    _session.proxies = requests_proxies()
     _chunk = chunk_size or CHUNK_SIZE
     _retries = max_retries or MAX_RETRIES
 

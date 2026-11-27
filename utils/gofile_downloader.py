@@ -36,8 +36,8 @@ from utils.logger import error as _log_error
 # gofile-dl 服务地址
 BASE_URL: str = os.environ.get("GOFILE_DL_BASE_URL", "http://192.168.3.160:2355")
 # HTTP Basic Auth（docker-compose 里的 AUTH_USERNAME / AUTH_PASSWORD）
-AUTH_USER: str = os.environ.get("GOFILE_DL_USERNAME", "admin")
-AUTH_PASS: str = os.environ.get("GOFILE_DL_PASSWORD", "Abc123!!")
+AUTH_USER: str = os.environ.get("GOFILE_DL_USERNAME", "")
+AUTH_PASS: str = os.environ.get("GOFILE_DL_PASSWORD", "")
 # gofile-dl 容器内下载根目录（POST /start 的 directory 字段，须在 BASE_DIR 内）
 REMOTE_DIR: str = os.environ.get("GOFILE_DL_REMOTE_DIR", "/data")
 # REMOTE_DIR 映射到的宿主机目录（docker-compose 的 volume 宿主机侧）
@@ -58,6 +58,10 @@ class _GofileDlApi:
     """对 gofile-dl 控制面的最小封装：Basic Auth + Flask-WTF CSRF + session cookie。"""
 
     def __init__(self) -> None:
+        if not AUTH_USER or not AUTH_PASS:
+            raise RuntimeError(
+                "gofile 需要环境变量 GOFILE_DL_USERNAME 和 GOFILE_DL_PASSWORD"
+            )
         self._base = BASE_URL.rstrip("/")
         self._session = requests.Session()
         self._session.auth = (AUTH_USER, AUTH_PASS)
@@ -191,6 +195,12 @@ def _copy_back(task_id: str, task: dict, output_dir: str,
 
     返回复制好的本地文件路径列表；无文件可复制返回 None。
     """
+    if not os.path.isdir(HOST_DIR):
+        raise RuntimeError(
+            f"gofile 宿主机目录不存在：{HOST_DIR}。"
+            "auto_download 必须和 gofile-dl 的下载卷在同一台机器上，或设置 GOFILE_DL_HOST_DIR"
+        )
+
     files = [
         f for f in (task.get("files") or [])
         if f.get("file") and (f.get("progress") or 0) >= 100

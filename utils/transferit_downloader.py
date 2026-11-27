@@ -11,7 +11,6 @@ URL 格式: https://transfer.it/t/<12-char-handle>
   download(url, output_dir, *, progress_callback, stop_event) -> str | None
 """
 
-import os
 import time
 from pathlib import Path
 from threading import Event
@@ -20,18 +19,7 @@ from typing import Callable
 from transferit import Transferit, TransferNode
 
 from utils.logger import error as _log_error
-
-# =============================================================================
-# 常量
-# =============================================================================
-
-PROXY: str = "socks5h://127.0.0.1:7891"
-
-# httpx 走 socksio，scheme 用 socks5://
-_httpx_proxy = PROXY.replace("socks5h://", "socks5://")
-os.environ.setdefault("ALL_PROXY", _httpx_proxy)
-os.environ.setdefault("HTTP_PROXY", _httpx_proxy)
-os.environ.setdefault("HTTPS_PROXY", _httpx_proxy)
+from utils.proxy import ensure_library_proxy
 
 
 # =============================================================================
@@ -58,6 +46,7 @@ def download(
         成功返回首个文件路径，失败返回 None
     """
     stop = stop_event or Event()
+    ensure_library_proxy()
 
     # ---- 进度报告 ----
     class State:
